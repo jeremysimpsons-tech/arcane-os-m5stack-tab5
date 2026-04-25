@@ -58,6 +58,7 @@ void app_show(AppScreen s, void *user_ctx) {
 }
 
 void app_init() {
+    arc_settings_load_from_nvs();
     /* Boot flow:
        1) device boots
        2) splashscreen (animated)

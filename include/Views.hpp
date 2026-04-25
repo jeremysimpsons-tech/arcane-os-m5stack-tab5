@@ -1,6 +1,9 @@
 #pragma once
 #include "AppTypes.hpp"
 
+/** Load persisted settings (CPU MHz, backlight timeout, etc.) from NVS; call once after M5.begin. */
+void arc_settings_load_from_nvs();
+
 void view_calibrate();
 void view_splash();
 void view_home();
