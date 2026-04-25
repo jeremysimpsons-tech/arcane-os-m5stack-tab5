@@ -1,6 +1,5 @@
 #include "AppTypes.hpp"
 #include "LvglHal.hpp"
-#include "TouchCal.hpp"
 #include "Views.hpp"
 #include <Arduino.h>
 
@@ -59,11 +58,9 @@ void app_show(AppScreen s, void *user_ctx) {
 }
 
 void app_init() {
-    TouchCalData c{};
-    if (TouchCalStore::load(&c) && c.valid) {
-        LvglHal::set_touch_cal(c);
-        view_splash();
-    } else {
-        view_calibrate();
-    }
+    /* Boot flow:
+       1) device boots
+       2) splashscreen (animated)
+       3) tap anywhere → Home */
+    view_splash();
 }

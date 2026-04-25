@@ -46,6 +46,21 @@ static void splash_add_dismiss(lv_obj_t *o) {
     lv_obj_add_event_cb(o, splash_dismiss_cb, LV_EVENT_PRESSED, nullptr);
 }
 
+static void splash_fade_in(lv_obj_t *o, uint32_t dur_ms) {
+    if (!o || !lv_obj_is_valid(o))
+        return;
+    lv_obj_set_style_opa(o, LV_OPA_0, LV_PART_MAIN);
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, o);
+    lv_anim_set_values(&a, LV_OPA_0, LV_OPA_COVER);
+    lv_anim_set_time(&a, dur_ms);
+    lv_anim_set_exec_cb(&a, (lv_anim_exec_xcb_t)[](void *obj, int32_t v) {
+        lv_obj_set_style_opa((lv_obj_t *)obj, (lv_opa_t)v, LV_PART_MAIN);
+    });
+    lv_anim_start(&a);
+}
+
 void view_splash() {
     s_splash_dismissed = false;
     lv_obj_t *scr = lv_screen_active();
@@ -54,22 +69,33 @@ void view_splash() {
     color_bg(scr, APP_C_SPLASH_BG);
     lv_obj_set_style_pad_all(scr, 0, LV_PART_MAIN);
 
-    lv_obj_t *title = lv_label_create(scr);
+    /* Centered splash mark: wolf image + ARCANE OS title + subtitle */
+    lv_obj_t *mark = lv_obj_create(scr);
+    lv_obj_set_size(mark, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(mark, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(mark, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(mark, 0, LV_PART_MAIN);
+    lv_obj_set_layout(mark, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(mark, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(mark, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_row(mark, 18, LV_PART_MAIN);
+    lv_obj_center(mark);
+    lv_obj_set_y(mark, lv_obj_get_y(mark) - 80);
+
+    lv_obj_t *wim = lv_image_create(mark);
+    lv_image_set_src(wim, &wolf);
+
+    lv_obj_t *title = lv_label_create(mark);
     lv_label_set_text(title, APP_NAME);
     lv_obj_set_style_text_font(title, APP_FONT_HERO, LV_PART_MAIN);
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
-    lv_obj_center(title);
-    lv_obj_set_y(title, lv_obj_get_y(title) - 40);
 
-    lv_obj_t *ver = lv_label_create(scr);
-    {
-        char b[64];
-        snprintf(b, sizeof(b), "v%s  ·  " __DATE__ " " __TIME__, APP_VERSION);
-        lv_label_set_text(ver, b);
-    }
+    lv_obj_t *ver = lv_label_create(mark);
+    lv_label_set_text(ver, "Home Base Edition");
     lv_obj_set_style_text_font(ver, APP_FONT_SUB, LV_PART_MAIN);
     lv_obj_set_style_text_color(ver, lv_color_hex(0xA8A8AE), LV_PART_MAIN);
-    lv_obj_align(ver, LV_ALIGN_CENTER, 0, 20);
+
+    splash_fade_in(mark, 1800);
 
     lv_obj_t *hint = lv_label_create(scr);
     lv_label_set_text(hint, "Touch screen to continue");
@@ -78,6 +104,8 @@ void view_splash() {
     lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -48);
 
     splash_add_dismiss(scr);
+    splash_add_dismiss(mark);
+    splash_add_dismiss(wim);
     splash_add_dismiss(title);
     splash_add_dismiss(ver);
     splash_add_dismiss(hint);
@@ -253,17 +281,30 @@ static void shell_batt_apply_color2(lv_obj_t *sym, lv_obj_t *num, int pct, bool 
 }
 
 struct ShellBatt {
+    lv_obj_t *chrg; /* lightning; left of battery; visible only when charging */
     lv_obj_t *sym;
     lv_obj_t *num;
 };
 static ShellBatt s_shell_batt = {};
 
-static void shell_batt_refresh_pair(lv_obj_t *sym, lv_obj_t *num) {
+static void shell_batt_refresh_all() {
+    lv_obj_t *chrg = s_shell_batt.chrg;
+    lv_obj_t *sym  = s_shell_batt.sym;
+    lv_obj_t *num  = s_shell_batt.num;
     if (!sym || !num || !lv_obj_is_valid(sym) || !lv_obj_is_valid(num))
         return;
     M5.update();
-    int           pct     = (int)M5.Power.getBatteryLevel();
-    const bool    charging = (M5.Power.isCharging() == m5::Power_Class::is_charging);
+    int         pct = (int)M5.Power.getBatteryLevel();
+    const bool  charging = (M5.Power.isCharging() == m5::Power_Class::is_charging);
+    if (chrg) {
+        if (charging && lv_obj_is_valid(chrg)) {
+            lv_label_set_text(chrg, LV_SYMBOL_CHARGE);
+            lv_obj_set_style_text_color(chrg, lv_color_hex(0x34C759), LV_PART_MAIN);
+            lv_obj_remove_flag(chrg, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(chrg, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
     if (pct < 0 || pct > 100) {
         lv_label_set_text(sym, LV_SYMBOL_BATTERY_FULL);
         lv_label_set_text(num, " —");
@@ -271,8 +312,7 @@ static void shell_batt_refresh_pair(lv_obj_t *sym, lv_obj_t *num) {
         lv_obj_set_style_text_color(sym, c, LV_PART_MAIN);
         lv_obj_set_style_text_color(num, c, LV_PART_MAIN);
     } else {
-        const char *bs = charging ? LV_SYMBOL_CHARGE : shell_battery_symbol(pct);
-        lv_label_set_text(sym, bs);
+        lv_label_set_text(sym, shell_battery_symbol(pct));
         char nb[20];
         snprintf(nb, sizeof(nb), " %d%%", pct);
         lv_label_set_text(num, nb);
@@ -282,7 +322,7 @@ static void shell_batt_refresh_pair(lv_obj_t *sym, lv_obj_t *num) {
 
 static void shell_batt_timer_cb(lv_timer_t *t) {
     (void)t;
-    shell_batt_refresh_pair(s_shell_batt.sym, s_shell_batt.num);
+    shell_batt_refresh_all();
 }
 
 static void shell_style_topbar_btn(lv_obj_t *btn) {
@@ -290,6 +330,46 @@ static void shell_style_topbar_btn(lv_obj_t *btn) {
     lv_obj_set_style_shadow_width(btn, 0, LV_PART_MAIN);
     lv_obj_set_style_border_width(btn, 0, LV_PART_MAIN);
     lv_obj_set_style_outline_width(btn, 0, LV_PART_MAIN);
+}
+
+/* ---------- Backlight timeout (Settings) ---------- */
+static uint32_t   s_backlight_timeout_ms = 0; /* 0 = disabled */
+static uint32_t   s_last_activity_ms     = 0;
+static bool       s_backlight_dimmed     = false;
+static uint8_t    s_backlight_restore    = 60; /* percent */
+static lv_timer_t *s_idle_timer          = nullptr;
+
+static void user_activity_poke() {
+    s_last_activity_ms = (uint32_t)lv_tick_get();
+    if (s_backlight_dimmed) {
+        M5.Display.setBrightness((uint8_t)((255 * s_backlight_restore) / 100));
+        s_backlight_dimmed = false;
+    }
+}
+
+static void idle_timer_cb(lv_timer_t *t) {
+    (void)t;
+    if (!s_backlight_timeout_ms)
+        return;
+    const uint32_t now = (uint32_t)lv_tick_get();
+    if (!s_backlight_dimmed && (now - s_last_activity_ms) >= s_backlight_timeout_ms) {
+        s_backlight_dimmed = true;
+        M5.Display.setBrightness(0);
+    }
+}
+
+/* In-app home glyph: 2× scale; pivot at label center. */
+static void home_icon_center_pivot(lv_obj_t *lbl) {
+    const lv_coord_t w = lv_obj_get_width(lbl);
+    const lv_coord_t h = lv_obj_get_height(lbl);
+    if (w <= 0 || h <= 0)
+        return;
+    lv_obj_set_style_transform_pivot_x(lbl, w / 2, LV_PART_MAIN);
+    lv_obj_set_style_transform_pivot_y(lbl, h / 2, LV_PART_MAIN);
+}
+
+static void home_icon_size_cb(lv_event_t *e) {
+    home_icon_center_pivot((lv_obj_t *)lv_event_get_target(e));
 }
 
 void shell_mount(const char *title, void (*on_right)(lv_event_t *), const char *right_caption, bool home_shell) {
@@ -318,7 +398,8 @@ void shell_mount(const char *title, void (*on_right)(lv_event_t *), const char *
     lv_obj_set_layout(s_bar, LV_LAYOUT_NONE);
     lv_obj_remove_flag(s_bar, LV_OBJ_FLAG_SCROLLABLE);
 
-    const lv_coord_t side_btn = (lv_coord_t)(APP_TOPBAR_PX - 20);
+    /* Slightly larger side button improves in-app home icon legibility. */
+    const lv_coord_t side_btn = (lv_coord_t)(APP_TOPBAR_PX - 14);
 
     /* Left: home = logo placeholder; in-app = back (→ Home) */
     if (home_shell) {
@@ -345,9 +426,14 @@ void shell_mount(const char *title, void (*on_right)(lv_event_t *), const char *
         lv_obj_t *bl = lv_label_create(back);
         /* Top-left icon becomes “Back to Home” when inside an app */
         lv_label_set_text(bl, LV_SYMBOL_HOME);
-        lv_obj_set_style_text_font(bl, APP_FONT_TITLE, LV_PART_MAIN);
+        lv_obj_set_style_text_font(bl, APP_FONT_HEADING, LV_PART_MAIN);
         lv_obj_set_style_text_color(bl, lv_color_hex(APP_C_TEXT), LV_PART_MAIN);
         lv_obj_center(bl);
+        /* 2× visual size (default scale = 256) */
+        lv_obj_set_style_transform_scale(bl, 512, LV_PART_MAIN);
+        lv_obj_add_event_cb(bl, home_icon_size_cb, LV_EVENT_SIZE_CHANGED, nullptr);
+        lv_obj_update_layout(back);
+        home_icon_center_pivot(bl);
         lv_obj_add_event_cb(back, sh_backhome_event, LV_EVENT_CLICKED, nullptr);
     }
 
@@ -388,13 +474,21 @@ void shell_mount(const char *title, void (*on_right)(lv_event_t *), const char *
     lv_obj_set_style_pad_all(brow, 0, LV_PART_MAIN);
     lv_obj_remove_flag(brow, LV_OBJ_FLAG_SCROLLABLE);
 
+    lv_obj_t *batt_chrg = lv_label_create(brow);
+    lv_label_set_text(batt_chrg, LV_SYMBOL_CHARGE);
+    lv_obj_set_style_text_font(batt_chrg, APP_FONT_HEADING, LV_PART_MAIN);
+    /* Add a small gap between charge and battery glyph */
+    lv_obj_set_style_pad_right(batt_chrg, 6, LV_PART_MAIN);
+    lv_obj_add_flag(batt_chrg, LV_OBJ_FLAG_HIDDEN);
+
     lv_obj_t *batt_sym = lv_label_create(brow);
     lv_obj_set_style_text_font(batt_sym, APP_FONT_HEADING, LV_PART_MAIN);
     lv_obj_t *batt_num = lv_label_create(brow);
     lv_obj_set_style_text_font(batt_num, APP_FONT_HEADING, LV_PART_MAIN);
-    s_shell_batt.sym = batt_sym;
-    s_shell_batt.num = batt_num;
-    shell_batt_refresh_pair(batt_sym, batt_num);
+    s_shell_batt.chrg = batt_chrg;
+    s_shell_batt.sym  = batt_sym;
+    s_shell_batt.num  = batt_num;
+    shell_batt_refresh_all();
 
     lv_obj_t *pkb = lv_button_create(rr);
     lv_obj_set_size(pkb, LV_SIZE_CONTENT, side_btn);
@@ -432,6 +526,20 @@ void shell_mount(const char *title, void (*on_right)(lv_event_t *), const char *
     lv_obj_set_layout(s_cbody, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(s_cbody, LV_FLEX_FLOW_COLUMN);
     lv_obj_remove_flag(s_cbody, LV_OBJ_FLAG_SCROLLABLE);
+
+    /* Treat any press anywhere as activity (wakes dimmed backlight). */
+    lv_obj_add_event_cb(scr, [](lv_event_t *e) {
+        if (lv_event_get_code(e) == LV_EVENT_PRESSED) user_activity_poke();
+    }, LV_EVENT_PRESSED, nullptr);
+    lv_obj_add_event_cb(s_cbody, [](lv_event_t *e) {
+        if (lv_event_get_code(e) == LV_EVENT_PRESSED) user_activity_poke();
+    }, LV_EVENT_PRESSED, nullptr);
+
+    if (!s_idle_timer) {
+        s_last_activity_ms = (uint32_t)lv_tick_get();
+        s_idle_timer       = lv_timer_create(idle_timer_cb, 250, nullptr);
+        lv_timer_set_repeat_count(s_idle_timer, -1);
+    }
 }
 
 static lv_obj_t *content_ptr() { return s_cbody; }
@@ -452,8 +560,11 @@ static void app_style_ios_slider(lv_obj_t *sl) {
 static lv_obj_t *app_screen_title(lv_obj_t *c, const char *title) {
     lv_obj_t *t = lv_label_create(c);
     lv_label_set_text(t, title);
-    lv_obj_set_style_text_font(t, APP_FONT_HEADING, LV_PART_MAIN);
-    lv_obj_set_style_text_color(t, lv_color_hex(APP_C_ICON_GREY_DARK), LV_PART_MAIN);
+    /* Settings-style titles: bigger + centered */
+    lv_obj_set_width(t, lv_pct(100));
+    lv_obj_set_style_text_align(t, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    lv_obj_set_style_text_font(t, APP_FONT_HERO, LV_PART_MAIN);
+    lv_obj_set_style_text_color(t, lv_color_hex(APP_C_SHEET_TEXT), LV_PART_MAIN);
     return t;
 }
 
@@ -466,26 +577,25 @@ static void app_style_muted_card(lv_obj_t *o) {
     lv_obj_set_style_shadow_width(o, 0, LV_PART_MAIN);
 }
 
-/* ---------- Home: iPhone-like grid (4 cols, up to 6 rows) ---------- */
+/* ---------- Home: iPhone-like grid (4 cols, vertical scroll) ---------- */
 enum { HOME_ICON_COLS = 4, HOME_ICON_GAP = 22, HOME_ICON_PAD = 26 };
 
 static const struct {
     const char *sym;
     const char *label;
     AppScreen   id;
-    uint32_t    color;
 } k_apps[] = {
-    { LV_SYMBOL_SETTINGS, "Settings", AppScreen::Settings, APP_C_ICON_ACCENT_BLUE },
-    { LV_SYMBOL_EDIT, "Touch cal", AppScreen::TouchCalibrate, APP_C_ICON_GREY_MID },
-    { LV_SYMBOL_DIRECTORY, "Files", AppScreen::Files, APP_C_ICON_GREY_MID },
-    { LV_SYMBOL_WIFI, "Wi‑Fi", AppScreen::WiFi, APP_C_ICON_ACCENT_BLUE },
-    { LV_SYMBOL_VIDEO, "Camera", AppScreen::Camera, APP_C_ICON_GREY_DARK },
-    { LV_SYMBOL_BARS, "IMU", AppScreen::Imu, APP_C_ICON_GREY_LIGHT },
-    { LV_SYMBOL_CHARGE, "Power", AppScreen::Power, APP_C_ICON_GREY_MID },
-    { LV_SYMBOL_DRIVE, "Storage", AppScreen::Sd, APP_C_ICON_GREY_DARK },
-    { LV_SYMBOL_KEYBOARD, "Touch", AppScreen::TouchTest, APP_C_ICON_GREY_LIGHT },
-    { LV_SYMBOL_SHUFFLE, "I2C", AppScreen::I2C, APP_C_ICON_GREY_MID },
-    { LV_SYMBOL_LOOP, "RTC", AppScreen::Rtc, APP_C_ICON_GREY_LIGHT },
+    { LV_SYMBOL_SETTINGS, "Settings", AppScreen::Settings },
+    { LV_SYMBOL_EDIT, "Touch cal", AppScreen::TouchCalibrate },
+    { LV_SYMBOL_DIRECTORY, "Files", AppScreen::Files },
+    { LV_SYMBOL_WIFI, "Wi‑Fi", AppScreen::WiFi },
+    { LV_SYMBOL_VIDEO, "Camera", AppScreen::Camera },
+    { LV_SYMBOL_BARS, "IMU", AppScreen::Imu },
+    { LV_SYMBOL_CHARGE, "Power", AppScreen::Power },
+    { LV_SYMBOL_DRIVE, "Storage", AppScreen::Sd },
+    { LV_SYMBOL_KEYBOARD, "Touch", AppScreen::TouchTest },
+    { LV_SYMBOL_SHUFFLE, "I2C", AppScreen::I2C },
+    { LV_SYMBOL_LOOP, "RTC", AppScreen::Rtc },
 };
 
 static void home_tile_event(lv_event_t *e) {
@@ -543,9 +653,11 @@ void view_home() {
 
         lv_obj_t *icon_box = lv_obj_create(hit);
         lv_obj_set_size(icon_box, (lv_coord_t)cell, (lv_coord_t)cell);
-        lv_obj_set_style_bg_opa(icon_box, LV_OPA_TRANSP, LV_PART_MAIN);
+        color_bg(icon_box, APP_C_ICON_ACCENT_BLUE);
+        lv_obj_set_style_radius(icon_box, APP_RADIUS_TILE, LV_PART_MAIN);
         lv_obj_set_style_border_width(icon_box, 0, LV_PART_MAIN);
-        lv_obj_set_style_pad_all(icon_box, 0, LV_PART_MAIN);
+        lv_obj_set_style_pad_all(icon_box, 6, LV_PART_MAIN);
+        lv_obj_set_style_clip_corner(icon_box, true, LV_PART_MAIN);
         /* Bubble touch events to the parent hit target */
         lv_obj_add_flag(icon_box, LV_OBJ_FLAG_EVENT_BUBBLE);
         lv_obj_remove_flag(icon_box, LV_OBJ_FLAG_SCROLLABLE);
@@ -553,24 +665,23 @@ void view_home() {
         lv_obj_t *ic = lv_label_create(icon_box);
         lv_label_set_text(ic, k_apps[i].sym);
         lv_obj_set_style_text_font(ic, APP_FONT_HERO, LV_PART_MAIN);
-        lv_obj_set_style_text_color(ic, lv_color_hex(k_apps[i].color), LV_PART_MAIN);
+        /* High-contrast glyphs on accent blue (iOS-like tile) */
+        lv_obj_set_style_text_color(ic, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
         lv_obj_set_style_text_align(ic, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-        lv_obj_set_style_text_outline_stroke_width(ic, 2, LV_PART_MAIN);
-        lv_obj_set_style_text_outline_stroke_opa(ic, LV_OPA_70, LV_PART_MAIN);
-        lv_obj_set_style_text_outline_stroke_color(ic, lv_color_hex(0xE8ECF1), LV_PART_MAIN);
         lv_obj_add_flag(ic, LV_OBJ_FLAG_EVENT_BUBBLE);
         lv_obj_center(ic);
 
         lv_obj_update_layout(ic);
         lv_obj_set_style_transform_pivot_x(ic, lv_obj_get_width(ic) / 2, LV_PART_MAIN);
         lv_obj_set_style_transform_pivot_y(ic, lv_obj_get_height(ic) / 2, LV_PART_MAIN);
-        lv_obj_set_style_transform_scale_x(ic, 256 * 3, LV_PART_MAIN);
-        lv_obj_set_style_transform_scale_y(ic, 256 * 3, LV_PART_MAIN);
+        /* ~1.45× so the symbol fits inside the rounded tile */
+        lv_obj_set_style_transform_scale_x(ic, 372, LV_PART_MAIN);
+        lv_obj_set_style_transform_scale_y(ic, 372, LV_PART_MAIN);
 
         lv_obj_t *cap = lv_label_create(hit);
         lv_label_set_text(cap, k_apps[i].label);
         lv_obj_set_style_text_font(cap, APP_FONT_HEADING, LV_PART_MAIN);
-        lv_obj_set_style_text_color(cap, lv_color_hex(APP_C_ICON_GREY_DARK), LV_PART_MAIN);
+        lv_obj_set_style_text_color(cap, lv_color_hex(APP_C_SHEET_TEXT), LV_PART_MAIN);
         lv_obj_set_style_text_align(cap, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
         lv_obj_set_style_text_letter_space(cap, 1, LV_PART_MAIN);
         lv_label_set_long_mode(cap, LV_LABEL_LONG_MODE_DOTS);
@@ -606,13 +717,15 @@ void view_files(void *user_ctx) {
     lv_obj_set_style_text_color(path, lv_color_hex(APP_C_ICON_ACCENT_BLUE), LV_PART_MAIN);
 
     lv_obj_t *row = lv_obj_create(c);
-    lv_obj_set_size(row, lv_pct(100), 48);
+    /* Taller selector so both items are fully visible on-device. */
+    lv_obj_set_size(row, lv_pct(100), 96);
     lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
     lv_obj_set_style_pad_column(row, 8, LV_PART_MAIN);
     app_style_muted_card(row);
     for (const char *t : { "Internal", "SD card" }) {
         lv_obj_t *b = lv_button_create(row);
         lv_obj_set_flex_grow(b, 1);
+        lv_obj_set_height(b, 72);
         shell_style_topbar_btn(b);
         lv_obj_t *l = lv_label_create(b);
         lv_label_set_text(l, t);
@@ -826,99 +939,314 @@ static void settings_reset_cal(lv_event_t *e) {
     esp_restart();
 }
 
+enum class SettingsCat : uint8_t { Power = 0, Comms = 1, Security = 2, Sensors = 3 };
+
+static SettingsCat s_settings_cat = SettingsCat::Power;
+static int         s_cpu_mhz       = 240;
+static int         s_lora_mix      = 50;  /* 0..100; UI-only */
+static bool        s_mesh_gateway  = false; /* UI-only */
+static int         s_bl_timeout_s  = 0;   /* 0,5,10,30 */
+
+static void settings_sidebar_btn_style(lv_obj_t *b, bool active) {
+    lv_obj_set_style_radius(b, 18, LV_PART_MAIN);
+    lv_obj_set_style_border_width(b, 0, LV_PART_MAIN);
+    lv_obj_set_style_shadow_width(b, 0, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(b, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(b, lv_color_hex(active ? 0xE8F1FB : 0xF2F2F7), LV_PART_MAIN);
+}
+
+static void settings_content_title(lv_obj_t *parent, const char *t) {
+    lv_obj_t *lab = lv_label_create(parent);
+    lv_label_set_text(lab, t);
+    lv_obj_set_style_text_font(lab, APP_FONT_SUB, LV_PART_MAIN);
+    lv_obj_set_style_text_color(lab, lv_color_hex(APP_C_SHEET_TEXT), LV_PART_MAIN);
+}
+
+static void settings_add_dropdown_row(lv_obj_t *parent, const char *label, const char *opts, int sel,
+                                     void (*on_change)(int)) {
+    lv_obj_t *row = lv_obj_create(parent);
+    lv_obj_set_width(row, lv_pct(100));
+    lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN);
+    lv_obj_set_layout(row, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+
+    lv_obj_t *l = lv_label_create(row);
+    lv_label_set_text(l, label);
+    lv_obj_set_style_text_font(l, APP_FONT_BODY, LV_PART_MAIN);
+    lv_obj_set_style_text_color(l, lv_color_hex(APP_C_SHEET_TEXT), LV_PART_MAIN);
+
+    lv_obj_t *dd = lv_dropdown_create(row);
+    lv_dropdown_set_options(dd, opts);
+    lv_dropdown_set_selected(dd, (uint16_t)sel);
+    lv_obj_set_style_text_font(dd, APP_FONT_BODY, LV_PART_MAIN);
+
+    lv_obj_add_event_cb(
+        dd,
+        [](lv_event_t *e) {
+            if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
+            auto fn = (void (*)(int))(uintptr_t)lv_event_get_user_data(e);
+            int  v  = (int)lv_dropdown_get_selected((lv_obj_t *)lv_event_get_target(e));
+            if (fn) fn(v);
+        },
+        LV_EVENT_VALUE_CHANGED, (void *)(uintptr_t)on_change);
+}
+
+static void settings_add_switch_row(lv_obj_t *parent, const char *label, bool initial, void (*on_toggle)(bool)) {
+    lv_obj_t *row = lv_obj_create(parent);
+    lv_obj_set_width(row, lv_pct(100));
+    lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN);
+    lv_obj_set_layout(row, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+
+    lv_obj_t *l = lv_label_create(row);
+    lv_label_set_text(l, label);
+    lv_obj_set_style_text_font(l, APP_FONT_BODY, LV_PART_MAIN);
+    lv_obj_set_style_text_color(l, lv_color_hex(APP_C_SHEET_TEXT), LV_PART_MAIN);
+
+    lv_obj_t *sw = lv_switch_create(row);
+    if (initial) lv_obj_add_state(sw, LV_STATE_CHECKED);
+    lv_obj_add_event_cb(
+        sw,
+        [](lv_event_t *e) {
+            if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
+            auto fn = (void (*)(bool))(uintptr_t)lv_event_get_user_data(e);
+            bool v  = lv_obj_has_state((lv_obj_t *)lv_event_get_target(e), LV_STATE_CHECKED);
+            if (fn) fn(v);
+        },
+        LV_EVENT_VALUE_CHANGED, (void *)(uintptr_t)on_toggle);
+}
+
+static void settings_add_slider_row(lv_obj_t *parent, const char *label, int minv, int maxv, int v,
+                                   void (*on_set)(int)) {
+    lv_obj_t *box = lv_obj_create(parent);
+    lv_obj_set_width(box, lv_pct(100));
+    app_style_muted_card(box);
+    lv_obj_set_style_pad_all(box, 14, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(box, 10, LV_PART_MAIN);
+
+    lv_obj_t *top = lv_obj_create(box);
+    lv_obj_set_width(top, lv_pct(100));
+    lv_obj_set_style_bg_opa(top, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(top, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(top, 0, LV_PART_MAIN);
+    lv_obj_set_layout(top, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(top, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(top, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+
+    lv_obj_t *l = lv_label_create(top);
+    lv_label_set_text(l, label);
+    lv_obj_set_style_text_font(l, APP_FONT_BODY, LV_PART_MAIN);
+    lv_obj_set_style_text_color(l, lv_color_hex(APP_C_SHEET_TEXT), LV_PART_MAIN);
+
+    lv_obj_t *val = lv_label_create(top);
+    lv_obj_set_style_text_font(val, APP_FONT_BODY, LV_PART_MAIN);
+    lv_obj_set_style_text_color(val, lv_color_hex(APP_C_SHEET_TEXT_MUTE), LV_PART_MAIN);
+
+    lv_obj_t *sl = lv_slider_create(box);
+    lv_obj_set_width(sl, lv_pct(100));
+    lv_slider_set_range(sl, minv, maxv);
+    lv_slider_set_value(sl, v, LV_ANIM_OFF);
+    app_style_ios_slider(sl);
+
+    auto update = [val](int nv) {
+        char b[32];
+        snprintf(b, sizeof(b), "%d", nv);
+        lv_label_set_text(val, b);
+    };
+    update(v);
+
+    lv_obj_add_event_cb(
+        sl,
+        [](lv_event_t *e) {
+            if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
+            auto fn    = (void (*)(int))(uintptr_t)lv_event_get_user_data(e);
+            auto slider = (lv_obj_t *)lv_event_get_target(e);
+            int nv = (int)lv_slider_get_value(slider);
+            if (fn) fn(nv);
+        },
+        LV_EVENT_VALUE_CHANGED, (void *)(uintptr_t)on_set);
+    /* value label updated by caller’s on_set, which can also apply side effects */
+}
+
+static void rtc_sync_msg(const char *method) {
+    lv_obj_t *mb = lv_msgbox_create(lv_layer_top());
+    lv_msgbox_add_title(mb, "RTC time sync");
+    lv_msgbox_add_text(mb, method);
+    lv_msgbox_add_footer_button(mb, "OK");
+    lv_obj_center(mb);
+}
+
+static void settings_build_content(lv_obj_t *panel) {
+    lv_obj_clean(panel);
+    lv_obj_set_style_pad_row(panel, 14, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(panel, 12, LV_PART_MAIN);
+
+    /* Make right panel scrollable for longer lists. */
+    lv_obj_add_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scroll_dir(panel, LV_DIR_VER);
+    apply_scroll_tabled(panel);
+    lv_obj_set_scrollbar_mode(panel, LV_SCROLLBAR_MODE_OFF);
+
+    if (s_settings_cat == SettingsCat::Power) {
+        settings_content_title(panel, "Power");
+
+        settings_add_dropdown_row(panel, "Backlight timeout",
+                                  "Off\n5 seconds\n10 seconds\n30 seconds",
+                                  (s_bl_timeout_s == 0) ? 0 : (s_bl_timeout_s == 5) ? 1 : (s_bl_timeout_s == 10) ? 2 : 3,
+                                  [](int sel) {
+                                      s_bl_timeout_s = (sel == 0) ? 0 : (sel == 1) ? 5 : (sel == 2) ? 10 : 30;
+                                      s_backlight_timeout_ms = (uint32_t)s_bl_timeout_s * 1000u;
+                                      user_activity_poke();
+                                  });
+
+        settings_add_dropdown_row(panel, "CPU frequency",
+                                  "80 MHz\n160 MHz\n240 MHz",
+                                  (s_cpu_mhz == 80) ? 0 : (s_cpu_mhz == 160) ? 1 : 2,
+                                  [](int sel) {
+                                      s_cpu_mhz = (sel == 0) ? 80 : (sel == 1) ? 160 : 240;
+                                      setCpuFrequencyMhz((uint32_t)s_cpu_mhz);
+                                  });
+    } else if (s_settings_cat == SettingsCat::Comms) {
+        settings_content_title(panel, "Comms");
+
+        settings_add_slider_row(panel, "LoRa spreading factor", 0, 100, s_lora_mix, [](int v) {
+            s_lora_mix = v;
+        });
+        lv_obj_t *hint = lv_label_create(panel);
+        lv_label_set_text(hint, "Left: High range / low speed   ·   Right: Low range / high speed");
+        lv_obj_set_style_text_font(hint, APP_FONT_CAP, LV_PART_MAIN);
+        lv_obj_set_style_text_color(hint, lv_color_hex(APP_C_SHEET_TEXT_MUTE), LV_PART_MAIN);
+
+        settings_add_switch_row(panel, "Mesh gateway (Repeater)", s_mesh_gateway, [](bool on) {
+            s_mesh_gateway = on;
+        });
+    } else if (s_settings_cat == SettingsCat::Security) {
+        settings_content_title(panel, "Security");
+        lv_obj_t *box = lv_obj_create(panel);
+        lv_obj_set_width(box, lv_pct(100));
+        app_style_muted_card(box);
+        lv_obj_t *t = lv_label_create(box);
+        lv_label_set_text(t, "Security settings placeholder.");
+        lv_obj_set_style_text_font(t, APP_FONT_BODY, LV_PART_MAIN);
+        lv_obj_set_style_text_color(t, lv_color_hex(APP_C_SHEET_TEXT), LV_PART_MAIN);
+    } else { /* Sensors */
+        settings_content_title(panel, "Sensors");
+
+        lv_obj_t *box = lv_obj_create(panel);
+        lv_obj_set_width(box, lv_pct(100));
+        app_style_muted_card(box);
+
+        lv_obj_t *t = lv_label_create(box);
+        lv_label_set_text(t, "RTC time sync");
+        lv_obj_set_style_text_font(t, APP_FONT_BODY, LV_PART_MAIN);
+        lv_obj_set_style_text_color(t, lv_color_hex(APP_C_SHEET_TEXT), LV_PART_MAIN);
+
+        lv_obj_t *row = lv_obj_create(panel);
+        lv_obj_set_width(row, lv_pct(100));
+        lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
+        lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
+        lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN);
+        lv_obj_set_layout(row, LV_LAYOUT_FLEX);
+        lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_column(row, 10, LV_PART_MAIN);
+
+        auto mk = [row](const char *cap, const char *msg) {
+            lv_obj_t *b = lv_button_create(row);
+            lv_obj_set_style_radius(b, 18, LV_PART_MAIN);
+            lv_obj_set_style_pad_hor(b, 14, LV_PART_MAIN);
+            lv_obj_set_style_pad_ver(b, 10, LV_PART_MAIN);
+            lv_obj_t *l = lv_label_create(b);
+            lv_label_set_text(l, cap);
+            lv_obj_set_style_text_font(l, APP_FONT_BODY, LV_PART_MAIN);
+            lv_obj_center(l);
+            lv_obj_add_event_cb(
+                b,
+                [](lv_event_t *e) {
+                    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+                    rtc_sync_msg((const char *)lv_event_get_user_data(e));
+                },
+                LV_EVENT_CLICKED, (void *)msg);
+        };
+        mk("Manual", "Manual: set RTC date/time.");
+        mk("GPS", "GPS: sync RTC from a connected GPS unit (TODO).");
+        mk("Internet", "Internet: sync RTC via NTP when Wi‑Fi is connected (TODO).");
+    }
+}
+
 void view_settings() {
     shell_mount("Settings", nullptr, nullptr, false);
     lv_obj_t *c = content_ptr();
-    app_screen_title(c, "Settings");
 
+    /* Sidebar + content layout */
+    lv_obj_set_layout(c, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(c, LV_FLEX_FLOW_ROW);
+    lv_obj_set_style_pad_column(c, 14, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(c, 0, LV_PART_MAIN);
+
+    lv_obj_t *sidebar = lv_obj_create(c);
+    lv_obj_set_size(sidebar, 140, lv_pct(100));
+    lv_obj_set_style_bg_opa(sidebar, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(sidebar, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(sidebar, 0, LV_PART_MAIN);
+    lv_obj_set_layout(sidebar, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(sidebar, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(sidebar, 10, LV_PART_MAIN);
+    lv_obj_remove_flag(sidebar, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *panel = lv_obj_create(c);
+    lv_obj_set_flex_grow(panel, 1);
+    lv_obj_set_height(panel, lv_pct(100));
+    lv_obj_set_style_bg_opa(panel, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(panel, 0, LV_PART_MAIN);
+
+    auto mk_side = [&](const char *sym, SettingsCat cat) {
+        lv_obj_t *b = lv_button_create(sidebar);
+        lv_obj_set_size(b, 86, 86);
+        settings_sidebar_btn_style(b, s_settings_cat == cat);
+        lv_obj_t *l = lv_label_create(b);
+        lv_label_set_text(l, sym);
+        lv_obj_set_style_text_font(l, APP_FONT_HERO, LV_PART_MAIN);
+        lv_obj_set_style_text_color(l, lv_color_hex(APP_C_ICON_ACCENT_BLUE), LV_PART_MAIN);
+        lv_obj_center(l);
+        lv_obj_add_event_cb(
+            b,
+            [](lv_event_t *e) {
+                if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+                s_settings_cat = (SettingsCat)(uintptr_t)lv_event_get_user_data(e);
+                /* Refresh sidebar active state + right panel */
+                lv_obj_t *sb = lv_obj_get_parent((lv_obj_t *)lv_event_get_target(e));
+                uint32_t idx = 0;
+                for (lv_obj_t *ch = lv_obj_get_child(sb, 0); ch; ch = lv_obj_get_child(sb, ++idx)) {
+                    if (!ch) break;
+                    SettingsCat ccat = (SettingsCat)(uintptr_t)lv_obj_get_user_data(ch);
+                    settings_sidebar_btn_style(ch, ccat == s_settings_cat);
+                }
+                lv_obj_t *root = lv_obj_get_parent(sb);
+                lv_obj_t *pn   = lv_obj_get_child(root, 1);
+                settings_build_content(pn);
+            },
+            LV_EVENT_CLICKED, (void *)(uintptr_t)cat);
+        lv_obj_set_user_data(b, (void *)(uintptr_t)cat);
+        return b;
+    };
+
+    mk_side(LV_SYMBOL_CHARGE, SettingsCat::Power);
+    mk_side(LV_SYMBOL_WIFI, SettingsCat::Comms);
+    mk_side(LV_SYMBOL_OK, SettingsCat::Security);
+    mk_side(LV_SYMBOL_EYE_OPEN, SettingsCat::Sensors);
+
+    /* Add existing sliders to Power category content */
+    if (s_cpu_mhz != 80 && s_cpu_mhz != 160 && s_cpu_mhz != 240) s_cpu_mhz = 240;
     M5.update();
-    int bright_pct = (int)((M5.Display.getBrightness() * 100) / 255);
-    if (bright_pct < 1)
-        bright_pct = 60;
-    if (bright_pct > 100)
-        bright_pct = 100;
+    s_backlight_restore = (uint8_t)((M5.Display.getBrightness() * 100) / 255);
+    if (s_backlight_restore < 1) s_backlight_restore = 60;
 
-    /* Brightness */
-    lv_obj_t *l1 = lv_label_create(c);
-    lv_label_set_text(l1, "Brightness");
-    lv_obj_set_style_text_font(l1, APP_FONT_SUB, LV_PART_MAIN);
-    lv_obj_set_style_text_color(l1, lv_color_hex(APP_C_ICON_GREY_DARK), LV_PART_MAIN);
-
-    lv_obj_t *valb = lv_label_create(c);
-    lv_obj_set_style_text_font(valb, APP_FONT_BODY, LV_PART_MAIN);
-    lv_obj_set_style_text_color(valb, lv_color_hex(APP_C_ICON_GREY_MID), LV_PART_MAIN);
-
-    lv_obj_t *slb = lv_slider_create(c);
-    lv_obj_set_width(slb, lv_pct(100));
-    lv_slider_set_range(slb, 1, 100);
-    lv_slider_set_value(slb, bright_pct, LV_ANIM_OFF);
-    app_style_ios_slider(slb);
-
-    auto on_bright = [](lv_event_t *e) {
-        lv_obj_t *slider = (lv_obj_t *)lv_event_get_target(e);
-        lv_obj_t *label  = (lv_obj_t *)lv_event_get_user_data(e);
-        int       pct    = (int)lv_slider_get_value(slider);
-        char      b[24];
-        snprintf(b, sizeof(b), "%d%%", pct);
-        if (label) lv_label_set_text(label, b);
-        M5.Display.setBrightness((uint8_t)((255 * pct) / 100));
-    };
-    lv_obj_add_event_cb(slb, on_bright, LV_EVENT_VALUE_CHANGED, valb);
-    {
-        char b[24];
-        snprintf(b, sizeof(b), "%d%%", bright_pct);
-        lv_label_set_text(valb, b);
-    }
-
-    /* Volume (speaker; Tab5 / M5Unified: master volume 0–255) */
-    lv_obj_t *l2 = lv_label_create(c);
-    lv_label_set_text(l2, "Volume");
-    lv_obj_set_style_text_font(l2, APP_FONT_SUB, LV_PART_MAIN);
-    lv_obj_set_style_text_color(l2, lv_color_hex(APP_C_ICON_GREY_DARK), LV_PART_MAIN);
-
-    lv_obj_t *valv = lv_label_create(c);
-    lv_obj_set_style_text_font(valv, APP_FONT_BODY, LV_PART_MAIN);
-    lv_obj_set_style_text_color(valv, lv_color_hex(APP_C_ICON_GREY_MID), LV_PART_MAIN);
-
-    int vol_pct = (int)((M5.Speaker.getVolume() * 100) / 255);
-    if (vol_pct < 0)
-        vol_pct = 0;
-    if (vol_pct > 100)
-        vol_pct = 100;
-
-    lv_obj_t *slv = lv_slider_create(c);
-    lv_obj_set_width(slv, lv_pct(100));
-    lv_slider_set_range(slv, 0, 100);
-    lv_slider_set_value(slv, vol_pct, LV_ANIM_OFF);
-    app_style_ios_slider(slv);
-
-    auto on_vol = [](lv_event_t *e) {
-        lv_obj_t *slider = (lv_obj_t *)lv_event_get_target(e);
-        lv_obj_t *label  = (lv_obj_t *)lv_event_get_user_data(e);
-        int       pct    = (int)lv_slider_get_value(slider);
-        char      b[24];
-        snprintf(b, sizeof(b), "%d%%", pct);
-        if (label) lv_label_set_text(label, b);
-        M5.Speaker.setVolume((uint8_t)((255 * pct) / 100));
-    };
-    lv_obj_add_event_cb(slv, on_vol, LV_EVENT_VALUE_CHANGED, valv);
-    {
-        char b[24];
-        snprintf(b, sizeof(b), "%d%%", vol_pct);
-        lv_label_set_text(valv, b);
-    }
-
-    lv_obj_t *btn = lv_button_create(c);
-    lv_obj_set_width(btn, lv_pct(100));
-    lv_obj_set_style_bg_color(btn, lv_color_hex(0xF2F2F7), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_radius(btn, 16, LV_PART_MAIN);
-    lv_obj_set_style_border_color(btn, lv_color_hex(0xE5E5EA), LV_PART_MAIN);
-    lv_obj_set_style_border_width(btn, 1, LV_PART_MAIN);
-    lv_obj_t *bl = lv_label_create(btn);
-    lv_label_set_text(bl, "Reset touch calibration (reboots)");
-    lv_obj_set_style_text_font(bl, APP_FONT_BODY, LV_PART_MAIN);
-    lv_obj_set_style_text_color(bl, lv_color_hex(APP_C_ICON_GREY_DARK), LV_PART_MAIN);
-    lv_obj_center(bl);
-    lv_obj_add_event_cb(btn, settings_reset_cal, LV_EVENT_CLICKED, nullptr);
+    settings_build_content(panel);
 }

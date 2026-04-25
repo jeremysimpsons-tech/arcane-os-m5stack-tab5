@@ -30,7 +30,7 @@
 #define LV_COLOR_DEPTH 16
 
 /** 0: RGB565 bytes little-endian in RAM; 1: swap the two 565 bytes (must match image assets and display) */
-#define LV_COLOR_16_SWAP 0
+#define LV_COLOR_16_SWAP 1
 
 /*=========================
    STDLIB WRAPPER SETTINGS
