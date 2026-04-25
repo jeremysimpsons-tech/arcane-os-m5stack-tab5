@@ -586,14 +586,12 @@ static const struct {
     AppScreen   id;
 } k_apps[] = {
     { LV_SYMBOL_SETTINGS, "Settings", AppScreen::Settings },
-    { LV_SYMBOL_EDIT, "Touch cal", AppScreen::TouchCalibrate },
     { LV_SYMBOL_DIRECTORY, "Files", AppScreen::Files },
     { LV_SYMBOL_WIFI, "Wi‑Fi", AppScreen::WiFi },
     { LV_SYMBOL_VIDEO, "Camera", AppScreen::Camera },
     { LV_SYMBOL_BARS, "IMU", AppScreen::Imu },
     { LV_SYMBOL_CHARGE, "Power", AppScreen::Power },
     { LV_SYMBOL_DRIVE, "Storage", AppScreen::Sd },
-    { LV_SYMBOL_KEYBOARD, "Touch", AppScreen::TouchTest },
     { LV_SYMBOL_SHUFFLE, "I2C", AppScreen::I2C },
     { LV_SYMBOL_LOOP, "RTC", AppScreen::Rtc },
 };
