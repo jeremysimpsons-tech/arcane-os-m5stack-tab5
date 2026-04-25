@@ -11,11 +11,41 @@
 #include <Preferences.h>
 #include <stdio.h>
 #include <esp_system.h>
+#include <time.h>
+
+#if __has_include(<SD_MMC.h>)
+    #include <SD_MMC.h>
+    #define ARC_HAVE_SD_MMC 1
+#else
+    #define ARC_HAVE_SD_MMC 0
+#endif
 
 #define ARC_SETTINGS_NVS   "arc_set"
 #define ARC_SETTINGS_MAGIC 0x53415431u /* 'SAT1' */
 
 extern "C" const lv_img_dsc_t wolf;
+
+/* Dark mode (persisted): light sheet vs near-black chrome for shell + home + in-app bodies. */
+static bool s_ui_dark_mode = false;
+
+static inline uint32_t ui_bg_content(void) {
+    return s_ui_dark_mode ? 0x000000u : (uint32_t)APP_C_HOME_SCREEN;
+}
+static inline uint32_t ui_text_primary(void) {
+    return s_ui_dark_mode ? 0xF2F2F4u : (uint32_t)APP_C_SHEET_TEXT;
+}
+static inline uint32_t ui_text_mute(void) {
+    return s_ui_dark_mode ? 0x9898A0u : (uint32_t)APP_C_SHEET_TEXT_MUTE;
+}
+static inline uint32_t ui_card_bg(void) {
+    return s_ui_dark_mode ? 0x1C1C1Eu : 0xF2F2F7u;
+}
+static inline uint32_t ui_card_border(void) {
+    return s_ui_dark_mode ? 0x3A3A3Cu : 0xE5E5EAu;
+}
+static inline uint32_t ui_cpu_chip_idle(void) {
+    return s_ui_dark_mode ? 0x3A3A3Cu : 0xE8E8EDu;
+}
 
 static lv_obj_t *s_cal_lbl = nullptr;
 static lv_obj_t *s_cal_dot = nullptr;
@@ -604,7 +634,7 @@ void shell_mount(const char *title, void (*on_right)(lv_event_t *), const char *
     lv_obj_set_flex_grow(s_cbody, 1);
     lv_obj_set_style_margin_top(s_cbody, 0, LV_PART_MAIN);
     /* Unified app background: match Home (white) */
-    color_bg(s_cbody, APP_C_HOME_SCREEN);
+    color_bg(s_cbody, ui_bg_content());
     lv_obj_set_style_pad_all(s_cbody, (lv_coord_t)APP_SAFE_INSET_V, LV_PART_MAIN);
     lv_obj_set_style_pad_row(s_cbody, 8, LV_PART_MAIN);
     lv_obj_set_style_radius(s_cbody, 0, LV_PART_MAIN);
@@ -633,15 +663,22 @@ void shell_mount(const char *title, void (*on_right)(lv_event_t *), const char *
 static lv_obj_t *content_ptr() { return s_cbody; }
 
 static void app_style_ios_slider(lv_obj_t *sl) {
-    lv_obj_set_style_bg_color(sl, lv_color_hex(0xE5E5EA), LV_PART_MAIN);
+    if (s_ui_dark_mode) {
+        lv_obj_set_style_bg_color(sl, lv_color_hex(0x2C2C2E), LV_PART_MAIN);
+        lv_obj_set_style_bg_color(sl, lv_color_hex(APP_C_ICON_ACCENT_BLUE), LV_PART_INDICATOR);
+        lv_obj_set_style_bg_color(sl, lv_color_hex(0xFFFFFF), LV_PART_KNOB);
+        lv_obj_set_style_border_color(sl, lv_color_hex(0x636366), LV_PART_KNOB);
+    } else {
+        lv_obj_set_style_bg_color(sl, lv_color_hex(0xE5E5EA), LV_PART_MAIN);
+        lv_obj_set_style_bg_color(sl, lv_color_hex(APP_C_ICON_ACCENT_BLUE), LV_PART_INDICATOR);
+        lv_obj_set_style_bg_color(sl, lv_color_hex(0xFFFFFF), LV_PART_KNOB);
+        lv_obj_set_style_border_color(sl, lv_color_hex(0xD1D1D6), LV_PART_KNOB);
+    }
     lv_obj_set_style_bg_opa(sl, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_radius(sl, LV_RADIUS_CIRCLE, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(sl, lv_color_hex(APP_C_ICON_ACCENT_BLUE), LV_PART_INDICATOR);
     lv_obj_set_style_bg_opa(sl, LV_OPA_COVER, LV_PART_INDICATOR);
     lv_obj_set_style_radius(sl, LV_RADIUS_CIRCLE, LV_PART_INDICATOR);
-    lv_obj_set_style_bg_color(sl, lv_color_hex(0xFFFFFF), LV_PART_KNOB);
     lv_obj_set_style_bg_opa(sl, LV_OPA_COVER, LV_PART_KNOB);
-    lv_obj_set_style_border_color(sl, lv_color_hex(0xD1D1D6), LV_PART_KNOB);
     lv_obj_set_style_border_width(sl, 1, LV_PART_KNOB);
 }
 
@@ -652,14 +689,14 @@ static lv_obj_t *app_screen_title(lv_obj_t *c, const char *title) {
     lv_obj_set_width(t, lv_pct(100));
     lv_obj_set_style_text_align(t, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_obj_set_style_text_font(t, APP_FONT_HERO, LV_PART_MAIN);
-    lv_obj_set_style_text_color(t, lv_color_hex(APP_C_SHEET_TEXT), LV_PART_MAIN);
+    lv_obj_set_style_text_color(t, lv_color_hex(ui_text_primary()), LV_PART_MAIN);
     return t;
 }
 
 static void app_style_muted_card(lv_obj_t *o) {
-    color_bg(o, 0xF2F2F7);
+    color_bg(o, ui_card_bg());
     lv_obj_set_style_radius(o, 16, LV_PART_MAIN);
-    lv_obj_set_style_border_color(o, lv_color_hex(0xE5E5EA), LV_PART_MAIN);
+    lv_obj_set_style_border_color(o, lv_color_hex(ui_card_border()), LV_PART_MAIN);
     lv_obj_set_style_border_width(o, 1, LV_PART_MAIN);
     lv_obj_set_style_pad_all(o, 16, LV_PART_MAIN);
     lv_obj_set_style_shadow_width(o, 0, LV_PART_MAIN);
@@ -674,6 +711,7 @@ static const struct {
     AppScreen   id;
 } k_apps[] = {
     { LV_SYMBOL_SETTINGS, "Settings", AppScreen::Settings },
+    { LV_SYMBOL_LIST, "Status", AppScreen::Status },
     { LV_SYMBOL_DIRECTORY, "Files", AppScreen::Files },
     { LV_SYMBOL_WIFI, "Wi‑Fi", AppScreen::WiFi },
     { LV_SYMBOL_VIDEO, "Camera", AppScreen::Camera },
@@ -697,7 +735,7 @@ void view_home() {
     shell_mount(APP_NAME, nullptr, nullptr, true);
     lv_obj_t *c = content_ptr();
 
-    color_bg(c, APP_C_HOME_SCREEN);
+    color_bg(c, ui_bg_content());
     lv_obj_set_style_radius(c, 0, LV_PART_MAIN);
     lv_obj_set_style_clip_corner(c, false, LV_PART_MAIN);
     /* Extra top padding so first row never tucks under the tall top bar */
@@ -767,7 +805,7 @@ void view_home() {
         lv_obj_t *cap = lv_label_create(hit);
         lv_label_set_text(cap, k_apps[i].label);
         lv_obj_set_style_text_font(cap, APP_FONT_HEADING, LV_PART_MAIN);
-        lv_obj_set_style_text_color(cap, lv_color_hex(APP_C_SHEET_TEXT), LV_PART_MAIN);
+        lv_obj_set_style_text_color(cap, lv_color_hex(ui_text_primary()), LV_PART_MAIN);
         lv_obj_set_style_text_align(cap, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
         lv_obj_set_style_text_letter_space(cap, 1, LV_PART_MAIN);
         lv_label_set_long_mode(cap, LV_LABEL_LONG_MODE_DOTS);
@@ -824,7 +862,7 @@ void view_files(void *user_ctx) {
     lv_obj_set_width(list, lv_pct(100));
     lv_obj_set_flex_grow(list, 1);
     apply_scroll_tabled(list);
-    color_bg(list, APP_C_HOME_SCREEN);
+    color_bg(list, ui_bg_content());
     lv_obj_set_style_radius(list, 14, LV_PART_MAIN);
     lv_obj_set_style_pad_all(list, 4, LV_PART_MAIN);
     lv_obj_set_style_border_color(list, lv_color_hex(0xE5E5EA), LV_PART_MAIN);
@@ -842,7 +880,7 @@ void view_wifi() {
     lv_obj_t *list = lv_list_create(c);
     lv_obj_set_size(list, lv_pct(100), (lv_coord_t)APP_CONTENT_H - 80);
     apply_scroll_tabled(list);
-    color_bg(list, APP_C_HOME_SCREEN);
+    color_bg(list, ui_bg_content());
     lv_obj_set_style_radius(list, 14, LV_PART_MAIN);
     lv_obj_set_style_border_color(list, lv_color_hex(0xE5E5EA), LV_PART_MAIN);
     lv_obj_set_style_border_width(list, 1, LV_PART_MAIN);
@@ -912,7 +950,7 @@ void view_power_menu() {
     lv_obj_t *wrap = lv_obj_create(c);
     lv_obj_set_width(wrap, lv_pct(100));
     lv_obj_set_flex_grow(wrap, 1);
-    color_bg(wrap, APP_C_HOME_SCREEN);
+    color_bg(wrap, ui_bg_content());
     lv_obj_set_style_border_width(wrap, 0, LV_PART_MAIN);
     lv_obj_set_layout(wrap, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(wrap, LV_FLEX_FLOW_COLUMN);
@@ -922,7 +960,7 @@ void view_power_menu() {
 
     lv_obj_t *btn = lv_button_create(wrap);
     lv_obj_set_size(btn, 220, 200);
-    color_bg(btn, 0xF2F2F7);
+    color_bg(btn, ui_card_bg());
     lv_obj_set_style_radius(btn, 20, LV_PART_MAIN);
     lv_obj_set_style_shadow_width(btn, 0, LV_PART_MAIN);
     lv_obj_set_style_border_color(btn, lv_color_hex(0xD0D7DE), LV_PART_MAIN);
@@ -1025,7 +1063,7 @@ static void settings_reset_cal(lv_event_t *e) {
     esp_restart();
 }
 
-enum class SettingsCat : uint8_t { Power = 0, Comms = 1, Security = 2, Sensors = 3 };
+enum class SettingsCat : uint8_t { Power = 0, Display = 1, Comms = 2, Security = 3, Sensors = 4 };
 
 static SettingsCat s_settings_cat = SettingsCat::Power;
 static int         s_cpu_mhz       = 240;
@@ -1082,6 +1120,7 @@ void arc_settings_load_from_nvs() {
         s_volume_pct = (uint8_t)vol_d;
         M5.Speaker.setVolume((uint8_t)((255u * vol_d) / 100u));
     }
+    s_ui_dark_mode = p.getBool("dark", false);
     p.end();
 }
 
@@ -1108,6 +1147,7 @@ static void settings_persist_to_nvs() {
     p.putBool("mesh", s_mesh_gateway);
     p.putUInt("bri", (uint32_t)s_backlight_restore);
     p.putUInt("vol", (uint32_t)s_volume_pct);
+    p.putBool("dark", s_ui_dark_mode);
     p.end();
 }
 
@@ -1145,11 +1185,11 @@ static void settings_cpu_refresh_chips(lv_obj_t *row) {
         if (mhz != 80 && mhz != 160 && mhz != 240)
             continue;
         const bool on = ((int)mhz == s_cpu_mhz);
-        lv_obj_set_style_bg_color(b, lv_color_hex(on ? APP_C_ACCENT : 0xE8E8ED), LV_PART_MAIN);
+        lv_obj_set_style_bg_color(b, lv_color_hex(on ? APP_C_ACCENT : ui_cpu_chip_idle()), LV_PART_MAIN);
         lv_obj_set_style_bg_opa(b, LV_OPA_COVER, LV_PART_MAIN);
         lv_obj_t *lb = lv_obj_get_child(b, 0);
         if (lb)
-            lv_obj_set_style_text_color(lb, lv_color_hex(on ? 0xFFFFFF : APP_C_SHEET_TEXT), LV_PART_MAIN);
+            lv_obj_set_style_text_color(lb, lv_color_hex(on ? 0xFFFFFF : ui_text_primary()), LV_PART_MAIN);
     }
 }
 
@@ -1171,7 +1211,7 @@ static void settings_add_cpu_mhz_row(lv_obj_t *parent) {
     lv_obj_t *hdr = lv_label_create(parent);
     lv_label_set_text(hdr, "CPU frequency");
     lv_obj_set_style_text_font(hdr, APP_FONT_SUB, LV_PART_MAIN);
-    lv_obj_set_style_text_color(hdr, lv_color_hex(APP_C_SHEET_TEXT), LV_PART_MAIN);
+    lv_obj_set_style_text_color(hdr, lv_color_hex(ui_text_primary()), LV_PART_MAIN);
 
     lv_obj_t *row = lv_obj_create(parent);
     lv_obj_set_width(row, lv_pct(100));
@@ -1231,7 +1271,10 @@ static void settings_sidebar_btn_style(lv_obj_t *b, bool active) {
     lv_obj_set_style_border_width(b, 0, LV_PART_MAIN);
     lv_obj_set_style_shadow_width(b, 0, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(b, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(b, lv_color_hex(active ? 0xE8F1FB : 0xF2F2F7), LV_PART_MAIN);
+    if (s_ui_dark_mode)
+        lv_obj_set_style_bg_color(b, lv_color_hex(active ? 0x2C3F5A : 0x1C1C1E), LV_PART_MAIN);
+    else
+        lv_obj_set_style_bg_color(b, lv_color_hex(active ? 0xE8F1FB : 0xF2F2F7), LV_PART_MAIN);
 }
 
 static void settings_content_title(lv_obj_t *parent, const char *t) {
@@ -1240,7 +1283,21 @@ static void settings_content_title(lv_obj_t *parent, const char *t) {
     lv_obj_set_width(lab, lv_pct(100));
     lv_obj_set_style_text_align(lab, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_obj_set_style_text_font(lab, APP_FONT_HEADING, LV_PART_MAIN);
-    lv_obj_set_style_text_color(lab, lv_color_hex(APP_C_SHEET_TEXT), LV_PART_MAIN);
+    lv_obj_set_style_text_color(lab, lv_color_hex(ui_text_primary()), LV_PART_MAIN);
+}
+
+static void settings_style_dropdown(lv_obj_t *dd) {
+    if (!s_ui_dark_mode)
+        return;
+    lv_obj_set_style_bg_opa(dd, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(dd, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+    lv_obj_set_style_text_color(dd, lv_color_hex(0x000000), LV_PART_MAIN);
+    lv_obj_t *lst = lv_dropdown_get_list(dd);
+    if (lst) {
+        lv_obj_set_style_bg_opa(lst, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_set_style_bg_color(lst, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+        lv_obj_set_style_text_color(lst, lv_color_hex(0x000000), LV_PART_MAIN);
+    }
 }
 
 static void settings_add_dropdown_row(lv_obj_t *parent, const char *label, const char *opts, int sel,
@@ -1260,7 +1317,7 @@ static void settings_add_dropdown_row(lv_obj_t *parent, const char *label, const
     lv_obj_t *l = lv_label_create(wrap);
     lv_label_set_text(l, label);
     lv_obj_set_style_text_font(l, APP_FONT_SUB, LV_PART_MAIN);
-    lv_obj_set_style_text_color(l, lv_color_hex(APP_C_SHEET_TEXT), LV_PART_MAIN);
+    lv_obj_set_style_text_color(l, lv_color_hex(ui_text_primary()), LV_PART_MAIN);
     lv_obj_set_width(l, lv_pct(100));
 
     lv_obj_t *dd = lv_dropdown_create(wrap);
@@ -1280,6 +1337,7 @@ static void settings_add_dropdown_row(lv_obj_t *parent, const char *label, const
             if (fn) fn(v);
         },
         LV_EVENT_VALUE_CHANGED, (void *)(uintptr_t)on_change);
+    settings_style_dropdown(dd);
 }
 
 struct SettingsSliderUd {
@@ -1328,7 +1386,7 @@ static void settings_add_switch_row(lv_obj_t *parent, const char *label, bool in
     lv_obj_t *l = lv_label_create(row);
     lv_label_set_text(l, label);
     lv_obj_set_style_text_font(l, APP_FONT_BODY, LV_PART_MAIN);
-    lv_obj_set_style_text_color(l, lv_color_hex(APP_C_SHEET_TEXT), LV_PART_MAIN);
+    lv_obj_set_style_text_color(l, lv_color_hex(ui_text_primary()), LV_PART_MAIN);
 
     lv_obj_t *sw = lv_switch_create(row);
     if (initial) lv_obj_add_state(sw, LV_STATE_CHECKED);
@@ -1367,11 +1425,11 @@ static void settings_add_slider_row(lv_obj_t *parent, const char *label, int min
     lv_obj_t *l = lv_label_create(top);
     lv_label_set_text(l, label);
     lv_obj_set_style_text_font(l, APP_FONT_BODY, LV_PART_MAIN);
-    lv_obj_set_style_text_color(l, lv_color_hex(APP_C_SHEET_TEXT), LV_PART_MAIN);
+    lv_obj_set_style_text_color(l, lv_color_hex(ui_text_primary()), LV_PART_MAIN);
 
     lv_obj_t *val = lv_label_create(top);
     lv_obj_set_style_text_font(val, APP_FONT_BODY, LV_PART_MAIN);
-    lv_obj_set_style_text_color(val, lv_color_hex(APP_C_SHEET_TEXT_MUTE), LV_PART_MAIN);
+    lv_obj_set_style_text_color(val, lv_color_hex(ui_text_mute()), LV_PART_MAIN);
 
     lv_obj_t *sl = lv_slider_create(box);
     lv_obj_set_width(sl, lv_pct(100));
@@ -1405,6 +1463,9 @@ static void rtc_sync_msg(const char *method) {
     lv_obj_center(mb);
 }
 
+/** When true, next `view_settings()` keeps dirty state (e.g. after dark mode UI refresh). */
+static bool s_settings_skip_dirty_clear = false;
+
 static void settings_build_content(lv_obj_t *panel) {
     lv_obj_clean(panel);
     s_settings_save_bottom = nullptr;
@@ -1422,15 +1483,6 @@ static void settings_build_content(lv_obj_t *panel) {
 
     if (s_settings_cat == SettingsCat::Power) {
         settings_content_title(panel, "Power");
-
-        settings_add_slider_row(panel, "Display brightness", 5, 100, (int)s_backlight_restore,
-                                [](int pct) {
-                                    s_backlight_restore = (uint8_t)pct;
-                                    M5.Display.setBrightness((uint8_t)((255u * (uint32_t)pct) / 100u));
-                                    user_activity_poke();
-                                    settings_mark_dirty();
-                                },
-                                "%d%%");
 
         settings_add_slider_row(panel, "Volume", 0, 100, (int)s_volume_pct,
                                 [](int pct) {
@@ -1461,6 +1513,30 @@ static void settings_build_content(lv_obj_t *panel) {
                                   });
 
         settings_add_cpu_mhz_row(panel);
+    } else if (s_settings_cat == SettingsCat::Display) {
+        settings_content_title(panel, "Display");
+
+        settings_add_slider_row(panel, "Display brightness", 5, 100, (int)s_backlight_restore,
+                                [](int pct) {
+                                    s_backlight_restore = (uint8_t)pct;
+                                    M5.Display.setBrightness((uint8_t)((255u * (uint32_t)pct) / 100u));
+                                    user_activity_poke();
+                                    settings_mark_dirty();
+                                },
+                                "%d%%");
+
+        settings_add_switch_row(panel, "Dark mode", s_ui_dark_mode, [](bool on) {
+            s_ui_dark_mode = on;
+            settings_mark_dirty();
+            s_settings_skip_dirty_clear = true;
+            lv_timer_t *tm = lv_timer_create(
+                [](lv_timer_t *t) {
+                    app_show(AppScreen::Settings);
+                    lv_timer_delete(t);
+                },
+                30, nullptr);
+            lv_timer_set_repeat_count(tm, 1);
+        });
     } else if (s_settings_cat == SettingsCat::Comms) {
         settings_content_title(panel, "Comms");
 
@@ -1470,10 +1546,18 @@ static void settings_build_content(lv_obj_t *panel) {
                                     settings_mark_dirty();
                                 },
                                 "%d");
-        lv_obj_t *hint = lv_label_create(panel);
-        lv_label_set_text(hint, "Left: High range / low speed   ·   Right: Low range / high speed");
-        lv_obj_set_style_text_font(hint, APP_FONT_CAP, LV_PART_MAIN);
-        lv_obj_set_style_text_color(hint, lv_color_hex(APP_C_SHEET_TEXT_MUTE), LV_PART_MAIN);
+        lv_obj_t *hint1 = lv_label_create(panel);
+        lv_label_set_text(hint1, "Left: High range / low speed");
+        lv_obj_set_width(hint1, lv_pct(100));
+        lv_label_set_long_mode(hint1, LV_LABEL_LONG_MODE_WRAP);
+        lv_obj_set_style_text_font(hint1, APP_FONT_CAP, LV_PART_MAIN);
+        lv_obj_set_style_text_color(hint1, lv_color_hex(ui_text_mute()), LV_PART_MAIN);
+        lv_obj_t *hint2 = lv_label_create(panel);
+        lv_label_set_text(hint2, "Right: Low range / high speed");
+        lv_obj_set_width(hint2, lv_pct(100));
+        lv_label_set_long_mode(hint2, LV_LABEL_LONG_MODE_WRAP);
+        lv_obj_set_style_text_font(hint2, APP_FONT_CAP, LV_PART_MAIN);
+        lv_obj_set_style_text_color(hint2, lv_color_hex(ui_text_mute()), LV_PART_MAIN);
 
         settings_add_switch_row(panel, "Mesh gateway (Repeater)", s_mesh_gateway, [](bool on) {
             s_mesh_gateway = on;
@@ -1487,7 +1571,7 @@ static void settings_build_content(lv_obj_t *panel) {
         lv_obj_t *t = lv_label_create(box);
         lv_label_set_text(t, "Security settings placeholder.");
         lv_obj_set_style_text_font(t, APP_FONT_BODY, LV_PART_MAIN);
-        lv_obj_set_style_text_color(t, lv_color_hex(APP_C_SHEET_TEXT), LV_PART_MAIN);
+        lv_obj_set_style_text_color(t, lv_color_hex(ui_text_primary()), LV_PART_MAIN);
     } else { /* Sensors */
         settings_content_title(panel, "Sensors");
 
@@ -1498,7 +1582,7 @@ static void settings_build_content(lv_obj_t *panel) {
         lv_obj_t *t = lv_label_create(box);
         lv_label_set_text(t, "RTC time sync");
         lv_obj_set_style_text_font(t, APP_FONT_BODY, LV_PART_MAIN);
-        lv_obj_set_style_text_color(t, lv_color_hex(APP_C_SHEET_TEXT), LV_PART_MAIN);
+        lv_obj_set_style_text_color(t, lv_color_hex(ui_text_primary()), LV_PART_MAIN);
 
         lv_obj_t *row = lv_obj_create(panel);
         lv_obj_set_width(row, lv_pct(100));
@@ -1535,11 +1619,82 @@ static void settings_build_content(lv_obj_t *panel) {
     settings_install_save_footer(panel);
 }
 
+void view_status() {
+    shell_mount("Status", nullptr, nullptr, false);
+    lv_obj_t *c = content_ptr();
+    app_screen_title(c, "System status");
+
+    auto add_section = [&](const char *heading) -> lv_obj_t * {
+        lv_obj_t *h = lv_label_create(c);
+        lv_label_set_text(h, heading);
+        lv_obj_set_width(h, lv_pct(100));
+        lv_obj_set_style_text_font(h, APP_FONT_SUB, LV_PART_MAIN);
+        lv_obj_set_style_text_color(h, lv_color_hex(ui_text_mute()), LV_PART_MAIN);
+
+        lv_obj_t *box = lv_obj_create(c);
+        lv_obj_set_width(box, lv_pct(100));
+        app_style_muted_card(box);
+        lv_obj_t *t = lv_label_create(box);
+        lv_obj_set_width(t, lv_pct(100));
+        lv_label_set_long_mode(t, LV_LABEL_LONG_MODE_WRAP);
+        lv_obj_set_style_text_font(t, APP_FONT_BODY, LV_PART_MAIN);
+        lv_obj_set_style_text_color(t, lv_color_hex(ui_text_primary()), LV_PART_MAIN);
+        return t;
+    };
+
+    M5.update();
+
+    lv_obj_t *cpu_l = add_section("CPU");
+    char cbuf[64];
+    snprintf(cbuf, sizeof(cbuf), "Running at %u MHz (policy %d MHz).", (unsigned)getCpuFrequencyMhz(), s_cpu_mhz);
+    lv_label_set_text(cpu_l, cbuf);
+
+    lv_obj_t *dev_l = add_section("Connected devices");
+    lv_label_set_text(dev_l,
+                      "None detected.\n"
+                      "(Stack units such as GPS, ENV sensors, or Keyboard Unit v2 need a discovery pass — not wired yet.)");
+
+    lv_obj_t *sd_l = add_section("SD card storage");
+    char sdb[320];
+#if ARC_HAVE_SD_MMC
+    if (SD_MMC.cardType() != CARD_NONE) {
+        const uint64_t tot = SD_MMC.totalBytes();
+        const uint64_t use = SD_MMC.usedBytes();
+        const uint64_t fr  = (tot > use) ? (tot - use) : 0ull;
+        const unsigned pcf = (tot > 0ull) ? (unsigned)((100ull * fr) / tot) : 0u;
+        snprintf(sdb, sizeof(sdb),
+                 "Total: %.2f GiB\nUsed: %.2f GiB\nFree: %u%% (~%.2f GiB)",
+                 (double)tot / (1024.0 * 1024.0 * 1024.0), (double)use / (1024.0 * 1024.0 * 1024.0), pcf,
+                 (double)fr / (1024.0 * 1024.0 * 1024.0));
+    } else
+#endif
+    {
+        snprintf(sdb, sizeof(sdb),
+                 "No SD volume reported (not mounted or no card).\n"
+                 "If your Tab5 build exposes SD_MMC, mount it in firmware to populate this block.");
+    }
+    lv_label_set_text(sd_l, sdb);
+
+    lv_obj_t *clk_l = add_section("Time synchronisation");
+    const time_t now = time(nullptr);
+    const bool plausible = (now > (time_t)1700000000);
+    if (!plausible)
+        lv_label_set_text(clk_l,
+                          "Not synchronized.\n"
+                          "Source: — (set time manually or enable NTP when Wi‑Fi is available.)");
+    else
+        lv_label_set_text(clk_l,
+                          "Clock appears set (after ~Nov 2023).\n"
+                          "Source: not tracked yet — extend with SNTP/RTC to show NTP vs manual.");
+}
+
 void view_settings() {
     shell_mount("Settings", nullptr, nullptr, false);
     s_settings_save_top    = nullptr;
     s_settings_save_bottom = nullptr;
-    s_settings_dirty       = false;
+    if (!s_settings_skip_dirty_clear)
+        s_settings_dirty = false;
+    s_settings_skip_dirty_clear = false;
 
     lv_obj_t *c = content_ptr();
 
@@ -1561,7 +1716,7 @@ void view_settings() {
     lv_obj_t *ttl = lv_label_create(hdr);
     lv_label_set_text(ttl, "Settings");
     lv_obj_set_style_text_font(ttl, APP_FONT_TITLE, LV_PART_MAIN);
-    lv_obj_set_style_text_color(ttl, lv_color_hex(APP_C_SHEET_TEXT), LV_PART_MAIN);
+    lv_obj_set_style_text_color(ttl, lv_color_hex(ui_text_primary()), LV_PART_MAIN);
     lv_obj_align(ttl, LV_ALIGN_CENTER, 0, 0);
 
     lv_obj_t *save_top = lv_button_create(hdr);
@@ -1624,7 +1779,7 @@ void view_settings() {
         lv_obj_t *cap = lv_label_create(b);
         lv_label_set_text(cap, caption);
         lv_obj_set_style_text_font(cap, APP_FONT_BODY, LV_PART_MAIN);
-        lv_obj_set_style_text_color(cap, lv_color_hex(APP_C_SHEET_TEXT_MUTE), LV_PART_MAIN);
+        lv_obj_set_style_text_color(cap, lv_color_hex(ui_text_mute()), LV_PART_MAIN);
         lv_obj_set_style_text_align(cap, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
         lv_obj_set_width(cap, lv_pct(100));
         lv_label_set_long_mode(cap, LV_LABEL_LONG_MODE_DOTS);
@@ -1653,6 +1808,7 @@ void view_settings() {
     };
 
     mk_side(LV_SYMBOL_CHARGE, "Power", SettingsCat::Power);
+    mk_side(LV_SYMBOL_IMAGE, "Display", SettingsCat::Display);
     mk_side(LV_SYMBOL_WIFI, "Comms", SettingsCat::Comms);
     mk_side(LV_SYMBOL_OK, "Security", SettingsCat::Security);
     mk_side(LV_SYMBOL_EYE_OPEN, "Sensors", SettingsCat::Sensors);

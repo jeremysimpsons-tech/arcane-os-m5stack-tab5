@@ -16,6 +16,7 @@ enum class AppScreen : uint8_t {
     I2C,
     Rtc,
     Settings,
+    Status, /* system status: CPU, storage, devices, clock sync */
     TouchCalibrate, /* 4-point cal; same NVS save as first-boot, returns Home when done */
     PowerMenu,      /* system power sheet from top bar (separate from Power app tile) */
     COUNT

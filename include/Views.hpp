@@ -19,6 +19,7 @@ void view_sd();
 void view_touchtest();
 void view_i2c();
 void view_rtc();
+void view_status();
 void view_settings();
 void view_touch_calibrate();
 void view_power_menu();

@@ -42,6 +42,9 @@ void app_show(AppScreen s, void *user_ctx) {
     case AppScreen::Rtc:
         view_rtc();
         break;
+    case AppScreen::Status:
+        view_status();
+        break;
     case AppScreen::Settings:
         view_settings();
         break;
