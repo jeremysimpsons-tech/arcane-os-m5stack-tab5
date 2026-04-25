@@ -1,4 +1,5 @@
 #include "LvglHal.hpp"
+#include "Views.hpp"
 #include "arcane_lvgl.h"
 #include <Arduino.h>
 #include <M5Unified.h>
@@ -51,6 +52,8 @@ static void map_touch(int32_t *x, int32_t *y) {
         *y = APP_LCD_HEIGHT - 1;
 }
 
+static bool s_touch_down = false;
+
 static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
     (void)indev;
     lgfx::touch_point_t tp[1];
@@ -61,8 +64,13 @@ static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
         data->state   = LV_INDEV_STATE_PRESSED;
         data->point.x = (lv_coord_t)x;
         data->point.y = (lv_coord_t)y;
+        if (!s_touch_down) {
+            s_touch_down = true;
+            arc_notify_pointer_activity();
+        }
     } else {
         data->state = LV_INDEV_STATE_RELEASED;
+        s_touch_down = false;
     }
 }
 

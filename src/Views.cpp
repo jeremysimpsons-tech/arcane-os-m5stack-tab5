@@ -35,6 +35,24 @@ static void color_bg(lv_obj_t *o, uint32_t hex) {
 /* ---------- full-screen chrome-free splash (dismiss on touch only; no timer) ---------- */
 static bool s_splash_dismissed = false;
 
+/** Splash content fade duration (ms). */
+static constexpr uint32_t SPLASH_FADE_MS = 1800u;
+/** Startup bar shuttle: one full left→right→left cycle (slower than fade; loops until splash dismissed). */
+static constexpr uint32_t SPLASH_BAR_CYCLE_MS = 3200u;
+
+static void splash_boot_bar_anim(lv_obj_t *seg, lv_coord_t x_min, lv_coord_t x_max) {
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, seg);
+    lv_anim_set_exec_cb(&a, (lv_anim_exec_xcb_t)lv_obj_set_x);
+    lv_anim_set_values(&a, x_min, x_max);
+    lv_anim_set_duration(&a, SPLASH_BAR_CYCLE_MS / 2u);
+    lv_anim_set_playback_time(&a, SPLASH_BAR_CYCLE_MS / 2u);
+    lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
+    lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
+    lv_anim_start(&a);
+}
+
 static void splash_dismiss_cb(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_PRESSED)
         return;
@@ -58,7 +76,7 @@ static void splash_fade_in(lv_obj_t *o, uint32_t dur_ms) {
     lv_anim_init(&a);
     lv_anim_set_var(&a, o);
     lv_anim_set_values(&a, LV_OPA_0, LV_OPA_COVER);
-    lv_anim_set_time(&a, dur_ms);
+    lv_anim_set_duration(&a, dur_ms);
     lv_anim_set_exec_cb(&a, (lv_anim_exec_xcb_t)[](void *obj, int32_t v) {
         lv_obj_set_style_opa((lv_obj_t *)obj, (lv_opa_t)v, LV_PART_MAIN);
     });
@@ -99,7 +117,34 @@ void view_splash() {
     lv_obj_set_style_text_font(ver, APP_FONT_SUB, LV_PART_MAIN);
     lv_obj_set_style_text_color(ver, lv_color_hex(0xA8A8AE), LV_PART_MAIN);
 
-    splash_fade_in(mark, 1800);
+    /* macOS-style startup bar: pill track + lighter segment shuttling with the fade. */
+    constexpr lv_coord_t bar_track_w = 300;
+    constexpr lv_coord_t bar_track_h = 6;
+    constexpr lv_coord_t bar_seg_w   = 88;
+    constexpr lv_coord_t bar_seg_h   = 4;
+    constexpr lv_coord_t bar_pad_x   = 3;
+
+    lv_obj_t *bar_track = lv_obj_create(mark);
+    lv_obj_set_size(bar_track, bar_track_w, bar_track_h);
+    lv_obj_set_style_bg_opa(bar_track, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(bar_track, lv_color_hex(0x3A3A3C), LV_PART_MAIN);
+    lv_obj_set_style_radius(bar_track, bar_track_h / 2, LV_PART_MAIN);
+    lv_obj_set_style_border_width(bar_track, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(bar_track, 0, LV_PART_MAIN);
+    lv_obj_remove_flag(bar_track, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *bar_seg = lv_obj_create(bar_track);
+    lv_obj_set_size(bar_seg, bar_seg_w, bar_seg_h);
+    lv_obj_set_pos(bar_seg, bar_pad_x, (bar_track_h - bar_seg_h) / 2);
+    lv_obj_set_style_bg_opa(bar_seg, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(bar_seg, lv_color_hex(0xD1D1D6), LV_PART_MAIN);
+    lv_obj_set_style_radius(bar_seg, (bar_seg_h + 1) / 2, LV_PART_MAIN);
+    lv_obj_set_style_border_width(bar_seg, 0, LV_PART_MAIN);
+    lv_obj_remove_flag(bar_seg, LV_OBJ_FLAG_SCROLLABLE);
+
+    splash_boot_bar_anim(bar_seg, bar_pad_x, bar_track_w - bar_seg_w - bar_pad_x);
+
+    splash_fade_in(mark, SPLASH_FADE_MS);
 
     lv_obj_t *hint = lv_label_create(scr);
     lv_label_set_text(hint, "Touch screen to continue");
@@ -112,6 +157,8 @@ void view_splash() {
     splash_add_dismiss(wim);
     splash_add_dismiss(title);
     splash_add_dismiss(ver);
+    splash_add_dismiss(bar_track);
+    splash_add_dismiss(bar_seg);
     splash_add_dismiss(hint);
 }
 
@@ -299,7 +346,13 @@ static void shell_batt_refresh_all() {
         return;
     M5.update();
     int         pct = (int)M5.Power.getBatteryLevel();
-    const bool  charging = (M5.Power.isCharging() == m5::Power_Class::is_charging);
+    const m5::Power_Class::is_charging_t chg = M5.Power.isCharging();
+    bool        charging                    = (chg == m5::Power_Class::is_charging);
+    if (!charging && chg == m5::Power_Class::charge_unknown) {
+        const int vbus = (int)M5.Power.getVBUSVoltage();
+        if (vbus > 4200)
+            charging = true;
+    }
     if (chrg) {
         if (charging && lv_obj_is_valid(chrg)) {
             lv_label_set_text(chrg, LV_SYMBOL_CHARGE);
@@ -338,27 +391,58 @@ static void shell_style_topbar_btn(lv_obj_t *btn) {
 
 /* ---------- Backlight timeout (Settings) ---------- */
 static uint32_t   s_backlight_timeout_ms = 0; /* 0 = disabled */
+static uint32_t   s_dim_timeout_ms       = 0; /* 0 = disabled; soft-dim to 10% of user brightness */
 static uint32_t   s_last_activity_ms     = 0;
-static bool       s_backlight_dimmed     = false;
+static bool       s_backlight_dimmed     = false; /* full off */
+static bool       s_soft_dimmed            = false; /* 10% of restore level */
 static uint8_t    s_backlight_restore    = 60; /* percent */
 static lv_timer_t *s_idle_timer          = nullptr;
 
 static void user_activity_poke() {
     s_last_activity_ms = (uint32_t)lv_tick_get();
     if (s_backlight_dimmed) {
-        M5.Display.setBrightness((uint8_t)((255 * s_backlight_restore) / 100));
+        M5.Display.setBrightness((uint8_t)((255u * (uint32_t)s_backlight_restore) / 100u));
         s_backlight_dimmed = false;
+        s_soft_dimmed      = false;
+    } else if (s_soft_dimmed) {
+        M5.Display.setBrightness((uint8_t)((255u * (uint32_t)s_backlight_restore) / 100u));
+        s_soft_dimmed = false;
     }
+}
+
+void arc_notify_pointer_activity(void) {
+    user_activity_poke();
 }
 
 static void idle_timer_cb(lv_timer_t *t) {
     (void)t;
-    if (!s_backlight_timeout_ms)
+    if (!s_backlight_timeout_ms && !s_dim_timeout_ms)
         return;
-    const uint32_t now = (uint32_t)lv_tick_get();
-    if (!s_backlight_dimmed && (now - s_last_activity_ms) >= s_backlight_timeout_ms) {
-        s_backlight_dimmed = true;
-        M5.Display.setBrightness(0);
+    const uint32_t now  = (uint32_t)lv_tick_get();
+    const uint32_t idle = now - s_last_activity_ms;
+
+    /* Full backlight off (after dim if both are enabled). */
+    if (s_backlight_timeout_ms != 0 && idle >= s_backlight_timeout_ms) {
+        if (!s_backlight_dimmed) {
+            s_backlight_dimmed = true;
+            s_soft_dimmed      = false;
+            M5.Display.setBrightness(0);
+        }
+        return;
+    }
+
+    /* Soft dim to 10% of the user’s brightness level (not full black). */
+    if (s_dim_timeout_ms != 0 && idle >= s_dim_timeout_ms) {
+        if (!s_backlight_dimmed && !s_soft_dimmed) {
+            s_soft_dimmed = true;
+            const uint32_t full = (255u * (uint32_t)s_backlight_restore) / 100u;
+            uint32_t dim = full * 10u / 100u;
+            if (dim < 1u)
+                dim = 1u;
+            if (full >= 2u && dim >= full)
+                dim = full - 1u;
+            M5.Display.setBrightness((uint8_t)dim);
+        }
     }
 }
 
@@ -512,7 +596,7 @@ void shell_mount(const char *title, void (*on_right)(lv_event_t *), const char *
     lv_obj_set_style_text_color(tlab, lv_color_hex(APP_C_TEXT), LV_PART_MAIN);
     lv_obj_set_style_text_align(tlab, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_obj_align(tlab, LV_ALIGN_CENTER, 0, 0);
-    s_shell_batt_timer = lv_timer_create(shell_batt_timer_cb, 2500, nullptr);
+    s_shell_batt_timer = lv_timer_create(shell_batt_timer_cb, 1200, nullptr);
     lv_timer_set_repeat_count(s_shell_batt_timer, -1);
 
     s_cbody = lv_obj_create(scr);
@@ -948,6 +1032,8 @@ static int         s_cpu_mhz       = 240;
 static int         s_lora_mix      = 50;  /* 0..100; UI-only */
 static bool        s_mesh_gateway  = false; /* UI-only */
 static int         s_bl_timeout_s  = 0;   /* 0,5,10,30 */
+static int         s_dim_timeout_s = 0;   /* 0,5,10,30 screen dim */
+static uint8_t     s_volume_pct    = 70;  /* 0..100 → M5.Speaker */
 
 static bool       s_settings_dirty       = false;
 static lv_obj_t * s_settings_save_top    = nullptr;
@@ -966,6 +1052,13 @@ void arc_settings_load_from_nvs() {
         s_bl_timeout_s         = (int)bl;
         s_backlight_timeout_ms = bl * 1000u;
     }
+    {
+        const uint32_t dim = p.getUInt("dim_s", 255u);
+        if (dim == 0u || dim == 5u || dim == 10u || dim == 30u) {
+            s_dim_timeout_s  = (int)dim;
+            s_dim_timeout_ms = dim * 1000u;
+        }
+    }
     const int cpu = (int)p.getInt("cpu", 240);
     if (cpu == 80 || cpu == 160 || cpu == 240) {
         s_cpu_mhz = cpu;
@@ -978,6 +1071,17 @@ void arc_settings_load_from_nvs() {
         mix = 100;
     s_lora_mix     = mix;
     s_mesh_gateway = p.getBool("mesh", false);
+
+    const uint32_t bri = p.getUInt("bri", 0);
+    if (bri >= 1u && bri <= 100u) {
+        s_backlight_restore = (uint8_t)bri;
+        M5.Display.setBrightness((uint8_t)((255u * bri) / 100u));
+    }
+    const uint32_t vol_d = p.getUInt("vol", 101u);
+    if (vol_d <= 100u) {
+        s_volume_pct = (uint8_t)vol_d;
+        M5.Speaker.setVolume((uint8_t)((255u * vol_d) / 100u));
+    }
     p.end();
 }
 
@@ -998,9 +1102,12 @@ static void settings_persist_to_nvs() {
         return;
     p.putUInt("magic", ARC_SETTINGS_MAGIC);
     p.putUInt("bl_s", (uint32_t)s_bl_timeout_s);
+    p.putUInt("dim_s", (uint32_t)s_dim_timeout_s);
     p.putInt("cpu", s_cpu_mhz);
     p.putInt("lora", s_lora_mix);
     p.putBool("mesh", s_mesh_gateway);
+    p.putUInt("bri", (uint32_t)s_backlight_restore);
+    p.putUInt("vol", (uint32_t)s_volume_pct);
     p.end();
 }
 
@@ -1026,6 +1133,74 @@ static void settings_mark_dirty() {
         lv_obj_remove_flag(s_settings_save_top, LV_OBJ_FLAG_HIDDEN);
     if (s_settings_save_bottom && lv_obj_is_valid(s_settings_save_bottom))
         lv_obj_remove_flag(s_settings_save_bottom, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void settings_cpu_refresh_chips(lv_obj_t *row) {
+    const uint32_t n = lv_obj_get_child_count(row);
+    for (uint32_t i = 0; i < n; ++i) {
+        lv_obj_t *b = lv_obj_get_child(row, i);
+        if (!b)
+            continue;
+        const intptr_t mhz = (intptr_t)lv_obj_get_user_data(b);
+        if (mhz != 80 && mhz != 160 && mhz != 240)
+            continue;
+        const bool on = ((int)mhz == s_cpu_mhz);
+        lv_obj_set_style_bg_color(b, lv_color_hex(on ? APP_C_ACCENT : 0xE8E8ED), LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(b, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_t *lb = lv_obj_get_child(b, 0);
+        if (lb)
+            lv_obj_set_style_text_color(lb, lv_color_hex(on ? 0xFFFFFF : APP_C_SHEET_TEXT), LV_PART_MAIN);
+    }
+}
+
+static void settings_cpu_chip_clicked(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED)
+        return;
+    LvglHal::click_feedback();
+    lv_obj_t *b = (lv_obj_t *)lv_event_get_target(e);
+    const intptr_t mhz = (intptr_t)lv_obj_get_user_data(b);
+    if (mhz != 80 && mhz != 160 && mhz != 240)
+        return;
+    s_cpu_mhz = (int)mhz;
+    setCpuFrequencyMhz((uint32_t)s_cpu_mhz);
+    settings_cpu_refresh_chips(lv_obj_get_parent(b));
+    settings_mark_dirty();
+}
+
+static void settings_add_cpu_mhz_row(lv_obj_t *parent) {
+    lv_obj_t *hdr = lv_label_create(parent);
+    lv_label_set_text(hdr, "CPU frequency");
+    lv_obj_set_style_text_font(hdr, APP_FONT_SUB, LV_PART_MAIN);
+    lv_obj_set_style_text_color(hdr, lv_color_hex(APP_C_SHEET_TEXT), LV_PART_MAIN);
+
+    lv_obj_t *row = lv_obj_create(parent);
+    lv_obj_set_width(row, lv_pct(100));
+    lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN);
+    lv_obj_set_layout(row, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_style_pad_column(row, 8, LV_PART_MAIN);
+
+    const int freqs[] = {80, 160, 240};
+    for (unsigned fi = 0; fi < 3; ++fi) {
+        const int mhz = freqs[fi];
+        lv_obj_t *b = lv_button_create(row);
+        lv_obj_set_flex_grow(b, 1);
+        lv_obj_set_height(b, 44);
+        lv_obj_set_style_radius(b, 12, LV_PART_MAIN);
+        lv_obj_set_style_shadow_width(b, 0, LV_PART_MAIN);
+        lv_obj_set_style_border_width(b, 0, LV_PART_MAIN);
+        lv_obj_set_user_data(b, (void *)(intptr_t)mhz);
+        lv_obj_t *lb = lv_label_create(b);
+        char buf[24];
+        snprintf(buf, sizeof(buf), "%d MHz", mhz);
+        lv_label_set_text(lb, buf);
+        lv_obj_set_style_text_font(lb, APP_FONT_BODY, LV_PART_MAIN);
+        lv_obj_center(lb);
+        lv_obj_add_event_cb(b, settings_cpu_chip_clicked, LV_EVENT_CLICKED, nullptr);
+    }
+    settings_cpu_refresh_chips(row);
 }
 
 static void settings_install_save_footer(lv_obj_t *panel) {
@@ -1062,7 +1237,9 @@ static void settings_sidebar_btn_style(lv_obj_t *b, bool active) {
 static void settings_content_title(lv_obj_t *parent, const char *t) {
     lv_obj_t *lab = lv_label_create(parent);
     lv_label_set_text(lab, t);
-    lv_obj_set_style_text_font(lab, APP_FONT_SUB, LV_PART_MAIN);
+    lv_obj_set_width(lab, lv_pct(100));
+    lv_obj_set_style_text_align(lab, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    lv_obj_set_style_text_font(lab, APP_FONT_HEADING, LV_PART_MAIN);
     lv_obj_set_style_text_color(lab, lv_color_hex(APP_C_SHEET_TEXT), LV_PART_MAIN);
 }
 
@@ -1077,6 +1254,8 @@ static void settings_add_dropdown_row(lv_obj_t *parent, const char *label, const
     lv_obj_set_layout(wrap, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(wrap, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(wrap, 8, LV_PART_MAIN);
+    lv_obj_remove_flag(wrap, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollbar_mode(wrap, LV_SCROLLBAR_MODE_OFF);
 
     lv_obj_t *l = lv_label_create(wrap);
     lv_label_set_text(l, label);
@@ -1089,6 +1268,8 @@ static void settings_add_dropdown_row(lv_obj_t *parent, const char *label, const
     lv_dropdown_set_options(dd, opts);
     lv_dropdown_set_selected(dd, (uint16_t)sel);
     lv_obj_set_style_text_font(dd, APP_FONT_BODY, LV_PART_MAIN);
+    lv_obj_remove_flag(dd, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollbar_mode(dd, LV_SCROLLBAR_MODE_OFF);
 
     lv_obj_add_event_cb(
         dd,
@@ -1099,6 +1280,39 @@ static void settings_add_dropdown_row(lv_obj_t *parent, const char *label, const
             if (fn) fn(v);
         },
         LV_EVENT_VALUE_CHANGED, (void *)(uintptr_t)on_change);
+}
+
+struct SettingsSliderUd {
+    void (*fn)(int);
+    lv_obj_t *val_lbl;
+    const char *fmt;
+};
+
+static void settings_slider_ud_free_cb(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_DELETE)
+        return;
+    lv_obj_t *sl = (lv_obj_t *)lv_event_get_target(e);
+    SettingsSliderUd *ud = (SettingsSliderUd *)lv_obj_get_user_data(sl);
+    if (ud) {
+        lv_free(ud);
+        lv_obj_set_user_data(sl, nullptr);
+    }
+}
+
+static void settings_slider_evt_cb(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED)
+        return;
+    lv_obj_t *sl = (lv_obj_t *)lv_event_get_target(e);
+    SettingsSliderUd *ud = (SettingsSliderUd *)lv_obj_get_user_data(sl);
+    if (!ud)
+        return;
+    const int nv = (int)lv_slider_get_value(sl);
+    char b[32];
+    snprintf(b, sizeof(b), ud->fmt ? ud->fmt : "%d", nv);
+    if (ud->val_lbl)
+        lv_label_set_text(ud->val_lbl, b);
+    if (ud->fn)
+        ud->fn(nv);
 }
 
 static void settings_add_switch_row(lv_obj_t *parent, const char *label, bool initial, void (*on_toggle)(bool)) {
@@ -1130,18 +1344,22 @@ static void settings_add_switch_row(lv_obj_t *parent, const char *label, bool in
 }
 
 static void settings_add_slider_row(lv_obj_t *parent, const char *label, int minv, int maxv, int v,
-                                   void (*on_set)(int)) {
+                                   void (*on_set)(int), const char *val_fmt) {
     lv_obj_t *box = lv_obj_create(parent);
     lv_obj_set_width(box, lv_pct(100));
     app_style_muted_card(box);
     lv_obj_set_style_pad_all(box, 14, LV_PART_MAIN);
     lv_obj_set_style_pad_row(box, 10, LV_PART_MAIN);
+    lv_obj_remove_flag(box, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollbar_mode(box, LV_SCROLLBAR_MODE_OFF);
 
     lv_obj_t *top = lv_obj_create(box);
     lv_obj_set_width(top, lv_pct(100));
     lv_obj_set_style_bg_opa(top, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_border_width(top, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(top, 0, LV_PART_MAIN);
+    lv_obj_remove_flag(top, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollbar_mode(top, LV_SCROLLBAR_MODE_OFF);
     lv_obj_set_layout(top, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(top, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(top, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
@@ -1160,25 +1378,23 @@ static void settings_add_slider_row(lv_obj_t *parent, const char *label, int min
     lv_slider_set_range(sl, minv, maxv);
     lv_slider_set_value(sl, v, LV_ANIM_OFF);
     app_style_ios_slider(sl);
+    lv_obj_remove_flag(sl, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollbar_mode(sl, LV_SCROLLBAR_MODE_OFF);
 
-    auto update = [val](int nv) {
-        char b[32];
-        snprintf(b, sizeof(b), "%d", nv);
-        lv_label_set_text(val, b);
-    };
-    update(v);
+    const char *fmt = val_fmt ? val_fmt : "%d";
+    char initb[32];
+    snprintf(initb, sizeof(initb), fmt, v);
+    lv_label_set_text(val, initb);
 
-    lv_obj_add_event_cb(
-        sl,
-        [](lv_event_t *e) {
-            if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
-            auto fn    = (void (*)(int))(uintptr_t)lv_event_get_user_data(e);
-            auto slider = (lv_obj_t *)lv_event_get_target(e);
-            int nv = (int)lv_slider_get_value(slider);
-            if (fn) fn(nv);
-        },
-        LV_EVENT_VALUE_CHANGED, (void *)(uintptr_t)on_set);
-    /* value label updated by caller’s on_set, which can also apply side effects */
+    SettingsSliderUd *ud = (SettingsSliderUd *)lv_malloc(sizeof(SettingsSliderUd));
+    if (ud) {
+        ud->fn      = on_set;
+        ud->val_lbl = val;
+        ud->fmt     = fmt;
+        lv_obj_set_user_data(sl, ud);
+        lv_obj_add_event_cb(sl, settings_slider_evt_cb, LV_EVENT_VALUE_CHANGED, nullptr);
+        lv_obj_add_event_cb(sl, settings_slider_ud_free_cb, LV_EVENT_DELETE, nullptr);
+    }
 }
 
 static void rtc_sync_msg(const char *method) {
@@ -1207,6 +1423,23 @@ static void settings_build_content(lv_obj_t *panel) {
     if (s_settings_cat == SettingsCat::Power) {
         settings_content_title(panel, "Power");
 
+        settings_add_slider_row(panel, "Display brightness", 5, 100, (int)s_backlight_restore,
+                                [](int pct) {
+                                    s_backlight_restore = (uint8_t)pct;
+                                    M5.Display.setBrightness((uint8_t)((255u * (uint32_t)pct) / 100u));
+                                    user_activity_poke();
+                                    settings_mark_dirty();
+                                },
+                                "%d%%");
+
+        settings_add_slider_row(panel, "Volume", 0, 100, (int)s_volume_pct,
+                                [](int pct) {
+                                    s_volume_pct = (uint8_t)pct;
+                                    M5.Speaker.setVolume((uint8_t)((255u * (uint32_t)pct) / 100u));
+                                    settings_mark_dirty();
+                                },
+                                "%d%%");
+
         settings_add_dropdown_row(panel, "Backlight timeout",
                                   "Off\n5 seconds\n10 seconds\n30 seconds",
                                   (s_bl_timeout_s == 0) ? 0 : (s_bl_timeout_s == 5) ? 1 : (s_bl_timeout_s == 10) ? 2 : 3,
@@ -1217,21 +1450,26 @@ static void settings_build_content(lv_obj_t *panel) {
                                       settings_mark_dirty();
                                   });
 
-        settings_add_dropdown_row(panel, "CPU frequency",
-                                  "80 MHz\n160 MHz\n240 MHz",
-                                  (s_cpu_mhz == 80) ? 0 : (s_cpu_mhz == 160) ? 1 : 2,
+        settings_add_dropdown_row(panel, "Screen dim timeout",
+                                  "Off\n5 seconds\n10 seconds\n30 seconds",
+                                  (s_dim_timeout_s == 0) ? 0 : (s_dim_timeout_s == 5) ? 1 : (s_dim_timeout_s == 10) ? 2 : 3,
                                   [](int sel) {
-                                      s_cpu_mhz = (sel == 0) ? 80 : (sel == 1) ? 160 : 240;
-                                      setCpuFrequencyMhz((uint32_t)s_cpu_mhz);
+                                      s_dim_timeout_s = (sel == 0) ? 0 : (sel == 1) ? 5 : (sel == 2) ? 10 : 30;
+                                      s_dim_timeout_ms  = (uint32_t)s_dim_timeout_s * 1000u;
+                                      user_activity_poke();
                                       settings_mark_dirty();
                                   });
+
+        settings_add_cpu_mhz_row(panel);
     } else if (s_settings_cat == SettingsCat::Comms) {
         settings_content_title(panel, "Comms");
 
-        settings_add_slider_row(panel, "LoRa spreading factor", 0, 100, s_lora_mix, [](int v) {
-            s_lora_mix = v;
-            settings_mark_dirty();
-        });
+        settings_add_slider_row(panel, "LoRa spreading factor", 0, 100, s_lora_mix,
+                                [](int v) {
+                                    s_lora_mix = v;
+                                    settings_mark_dirty();
+                                },
+                                "%d");
         lv_obj_t *hint = lv_label_create(panel);
         lv_label_set_text(hint, "Left: High range / low speed   ·   Right: Low range / high speed");
         lv_obj_set_style_text_font(hint, APP_FONT_CAP, LV_PART_MAIN);
@@ -1313,19 +1551,18 @@ void view_settings() {
 
     lv_obj_t *hdr = lv_obj_create(c);
     lv_obj_set_width(hdr, lv_pct(100));
-    lv_obj_set_height(hdr, LV_SIZE_CONTENT);
+    lv_obj_set_height(hdr, 52);
     lv_obj_set_style_bg_opa(hdr, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_border_width(hdr, 0, LV_PART_MAIN);
-    lv_obj_set_style_pad_hor(hdr, 4, LV_PART_MAIN);
+    lv_obj_set_style_pad_hor(hdr, 6, LV_PART_MAIN);
     lv_obj_set_style_pad_ver(hdr, 0, LV_PART_MAIN);
-    lv_obj_set_layout(hdr, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(hdr, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(hdr, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_layout(hdr, LV_LAYOUT_NONE);
 
     lv_obj_t *ttl = lv_label_create(hdr);
     lv_label_set_text(ttl, "Settings");
-    lv_obj_set_style_text_font(ttl, APP_FONT_HERO, LV_PART_MAIN);
+    lv_obj_set_style_text_font(ttl, APP_FONT_TITLE, LV_PART_MAIN);
     lv_obj_set_style_text_color(ttl, lv_color_hex(APP_C_SHEET_TEXT), LV_PART_MAIN);
+    lv_obj_align(ttl, LV_ALIGN_CENTER, 0, 0);
 
     lv_obj_t *save_top = lv_button_create(hdr);
     settings_style_save_btn(save_top);
@@ -1336,6 +1573,7 @@ void view_settings() {
     lv_obj_center(stl);
     lv_obj_add_event_cb(save_top, settings_save_click_cb, LV_EVENT_CLICKED, nullptr);
     lv_obj_add_flag(save_top, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_align(save_top, LV_ALIGN_RIGHT_MID, -2, 0);
     s_settings_save_top = save_top;
 
     lv_obj_t *body = lv_obj_create(c);
@@ -1372,9 +1610,10 @@ void view_settings() {
         lv_obj_set_layout(b, LV_LAYOUT_FLEX);
         lv_obj_set_flex_flow(b, LV_FLEX_FLOW_COLUMN);
         lv_obj_set_flex_align(b, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-        lv_obj_set_style_pad_ver(b, 10, LV_PART_MAIN);
+        lv_obj_set_style_min_height(b, 108, LV_PART_MAIN);
+        lv_obj_set_style_pad_ver(b, 18, LV_PART_MAIN);
         lv_obj_set_style_pad_hor(b, 6, LV_PART_MAIN);
-        lv_obj_set_style_pad_row(b, 4, LV_PART_MAIN);
+        lv_obj_set_style_pad_row(b, 6, LV_PART_MAIN);
 
         lv_obj_t *ic = lv_label_create(b);
         lv_label_set_text(ic, sym);
@@ -1384,7 +1623,7 @@ void view_settings() {
 
         lv_obj_t *cap = lv_label_create(b);
         lv_label_set_text(cap, caption);
-        lv_obj_set_style_text_font(cap, APP_FONT_CAP, LV_PART_MAIN);
+        lv_obj_set_style_text_font(cap, APP_FONT_BODY, LV_PART_MAIN);
         lv_obj_set_style_text_color(cap, lv_color_hex(APP_C_SHEET_TEXT_MUTE), LV_PART_MAIN);
         lv_obj_set_style_text_align(cap, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
         lv_obj_set_width(cap, lv_pct(100));
@@ -1421,8 +1660,8 @@ void view_settings() {
     /* Add existing sliders to Power category content */
     if (s_cpu_mhz != 80 && s_cpu_mhz != 160 && s_cpu_mhz != 240) s_cpu_mhz = 240;
     M5.update();
-    s_backlight_restore = (uint8_t)((M5.Display.getBrightness() * 100) / 255);
-    if (s_backlight_restore < 1) s_backlight_restore = 60;
+    if (s_backlight_restore < 1)
+        s_backlight_restore = 60;
 
     settings_build_content(panel);
 }

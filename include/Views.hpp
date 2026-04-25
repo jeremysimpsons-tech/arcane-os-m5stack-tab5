@@ -4,6 +4,9 @@
 /** Load persisted settings (CPU MHz, backlight timeout, etc.) from NVS; call once after M5.begin. */
 void arc_settings_load_from_nvs();
 
+/** Call from pointer input when user touches the panel (wakes backlight / clears dim). */
+void arc_notify_pointer_activity(void);
+
 void view_calibrate();
 void view_splash();
 void view_home();
