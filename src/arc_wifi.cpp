@@ -2,6 +2,7 @@
  * Saved Wi‑Fi credentials: AES-128-ECB + PKCS#7, key = first 16 bytes of SHA256(salt || efuse MAC).
  */
 #include "arc_wifi.hpp"
+#include "app_config.h"
 #include "Tab5M5Comms.hpp"
 #include <Arduino.h>
 #include <Preferences.h>
@@ -226,15 +227,6 @@ bool arc_wifi_is_saved(const char *ssid) {
     return strncmp(a, ssid, sizeof a) == 0;
 }
 
-void arc_wifi_begin_autoconnect() {
-    if (!M5Comms.isReady())
-        return;
-    char ssid[33], pass[65];
-    if (!arc_wifi_get_saved(ssid, sizeof ssid, pass, sizeof pass))
-        return;
-    (void)M5Comms.WiFi.beginConnect(ssid, pass[0] ? pass : nullptr);
-}
-
 void arc_net_invalidate() {
     s_inet_valid = false;
 }
@@ -259,7 +251,16 @@ void arc_net_poll() {
         return;
     }
     s_last_inet_ms = now;
+#if ARC_DEBUG_WIFI
+    Serial.println("[arc:wifi] arc_net_poll: before probeTcp(1.1.1.1:80)");
+    Serial.flush();
+#endif
     s_inet         = M5Comms.WiFi.probeTcp("1.1.1.1", 80, 2000u);
+#if ARC_DEBUG_WIFI
+    Serial.print("[arc:wifi] arc_net_poll: after probe ok=");
+    Serial.println((int)s_inet);
+    Serial.flush();
+#endif
     s_inet_valid   = true;
 }
 
@@ -282,7 +283,6 @@ bool arc_wifi_get_saved(char *ssid, size_t ssid_len, char *pass, size_t pass_len
 void arc_wifi_save(const char *, const char *) {}
 void arc_wifi_forget() {}
 bool arc_wifi_is_saved(const char *) { return false; }
-void arc_wifi_begin_autoconnect() {}
 void arc_net_poll() {}
 bool arc_net_is_online() { return false; }
 void arc_net_invalidate() {}

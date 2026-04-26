@@ -67,4 +67,26 @@
 
 #define APP_NAME "ARCANE OS"
 #define APP_NAME_SHORT "ARCANE"
-#define APP_VERSION "0.1.0"
+#define APP_VERSION "1.1.0"
+
+/* Splash/startup chime: direct `M5.Speaker.setVolume(0..255)`; saved NVS "vol" still applies after dismiss. */
+#ifndef APP_SPLASH_VOLUME
+#define APP_SPLASH_VOLUME 200
+#endif
+
+/* Serial (115200): splash audio diagnostics. Set to 0 to silence. */
+#ifndef ARC_DEBUG_SPLASH_AUDIO
+#define ARC_DEBUG_SPLASH_AUDIO 1
+#endif
+/* Serial (115200): Wi‑Fi screen / SDIO / scan / connect — last line before reboot pinpoints crash. Set 0 to silence. */
+#ifndef ARC_DEBUG_WIFI
+#define ARC_DEBUG_WIFI 1
+#endif
+/* If 1, play a very short 1 kHz beep after Speaker.begin (path OK if you hear it). */
+#ifndef ARC_SPLASH_SMOKE_TONE
+#define ARC_SPLASH_SMOKE_TONE 0
+#endif
+/* If 1, skip internal mic in M5.begin (Tab5: avoids I2S RX/TX conflict with speaker; set 0 if you need mic). */
+#ifndef APP_BOOT_NO_INTERNAL_MIC
+#define APP_BOOT_NO_INTERNAL_MIC 1
+#endif

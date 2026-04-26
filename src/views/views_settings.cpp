@@ -403,10 +403,27 @@ static void settings_add_slider_row(lv_obj_t *parent, const char *label, int min
 
     lv_obj_t *sl = lv_slider_create(box);
     lv_obj_set_width(sl, lv_pct(100));
+    lv_obj_set_height(sl, 34);
     lv_slider_set_range(sl, minv, maxv);
     lv_slider_set_value(sl, v, LV_ANIM_OFF);
-    app_style_ios_slider(sl);
-    lv_obj_remove_flag(sl, LV_OBJ_FLAG_SCROLLABLE);
+    /* Force visible slider styling (track/indicator/knob). */
+    lv_obj_set_style_bg_opa(sl, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(sl, lv_color_hex(s_ui_dark_mode ? 0x3A3A3C : 0xD1D1D6), LV_PART_MAIN);
+    lv_obj_set_style_radius(sl, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+    lv_obj_set_style_border_width(sl, 2, LV_PART_MAIN);
+    lv_obj_set_style_border_color(sl, lv_color_hex(s_ui_dark_mode ? 0x636366 : 0xAEAEB2), LV_PART_MAIN);
+
+    lv_obj_set_style_bg_opa(sl, LV_OPA_COVER, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(sl, lv_color_hex(APP_C_ICON_ACCENT_BLUE), LV_PART_INDICATOR);
+    lv_obj_set_style_radius(sl, LV_RADIUS_CIRCLE, LV_PART_INDICATOR);
+
+    lv_obj_set_style_bg_opa(sl, LV_OPA_COVER, LV_PART_KNOB);
+    lv_obj_set_style_bg_color(sl, lv_color_hex(0xFFFFFF), LV_PART_KNOB);
+    lv_obj_set_style_border_width(sl, 2, LV_PART_KNOB);
+    lv_obj_set_style_border_color(sl, lv_color_hex(s_ui_dark_mode ? 0x636366 : 0x8E8E93), LV_PART_KNOB);
+    lv_obj_set_style_width(sl, 26, LV_PART_KNOB);
+    lv_obj_set_style_height(sl, 26, LV_PART_KNOB);
+    /* Keep default interaction flags; removing SCROLLABLE can break drag on some LVGL builds. */
     lv_obj_set_scrollbar_mode(sl, LV_SCROLLBAR_MODE_OFF);
 
     const char *fmt = val_fmt ? val_fmt : "%d";

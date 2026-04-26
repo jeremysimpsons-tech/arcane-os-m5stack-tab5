@@ -20,11 +20,10 @@ struct ShellBatt {
     lv_obj_t *num;
 };
 
-/** iPhone-style top cluster: `LV_SYMBOL_WIFI` + `LV_SYMBOL_BARS`; strikethrough when AP but no internet. */
+/** Top bar: single `LV_SYMBOL_WIFI` — RSSI shown via scale + tint (low/mid/high); strikethrough when on AP but no internet. */
 struct ShellTopWifi {
     lv_obj_t *wrap;
     lv_obj_t *ic;
-    lv_obj_t *bars;
 };
 
 extern bool     s_ui_dark_mode;

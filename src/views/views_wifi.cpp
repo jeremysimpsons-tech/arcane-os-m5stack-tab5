@@ -17,6 +17,8 @@
 #include <lvgl.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdarg.h>
+#include <atomic>
 #include <algorithm>
 #include <string.h>
 #include <string>
@@ -35,6 +37,16 @@ struct ConnJob {
     char  pass[65];
     bool  is_open;
 };
+
+/** In-flight connect: `beginConnect` + poll run on LVGL/loop (not a FreeRTOS task — `WiFi.begin` can reset Tab5 C6/SDIO if called from wconn). */
+struct ConnSt {
+    ConnJob j;
+    int     tick; /* increments each timer pass after begin; fail when reaches 79 (80th check) */
+};
+
+static lv_timer_t *s_connect_timer;
+/** Set while association is in progress — blocks new scans to avoid C6/SDIO races with the scan task. */
+static std::atomic<bool> s_wifi_connecting{false};
 
 struct RowU {
     char full_ssid[33];
@@ -57,6 +69,8 @@ static std::vector<WifiApRow>    s_aps;
 static char                      s_scan_err[96];
 static volatile bool             s_scan_done;
 static volatile bool             s_scan_running;
+/** True after opening the screen until the user runs Scan (avoids auto `scanNetworks` on entry). */
+static bool                      s_tap_to_scan_hint = true;
 static std::string               s_toast;
 static const char *              s_on_conn_info;
 
@@ -66,11 +80,39 @@ static lv_obj_t   *s_status;
 static void (*s_rebuild)();
 static void        wifi_rebuild();
 
+#if ARC_DEBUG_WIFI
+static void wifi_dbg(const char *line) {
+    Serial.print("[arc:wifi] ");
+    Serial.println(line);
+    Serial.flush();
+}
+static void wifi_dbgf(const char *fmt, ...) {
+    Serial.print("[arc:wifi] ");
+    char    buf[192];
+    va_list ap;
+    va_start(ap, fmt);
+    (void)vsnprintf(buf, sizeof buf, fmt, ap);
+    va_end(ap);
+    Serial.println(buf);
+    Serial.flush();
+}
+#else
+static void wifi_dbg(const char *) {}
+static void wifi_dbgf(const char *, ...) {}
+#endif
+
 /* ---------- top status (centered, large; mirrors header state only) ---------- */
 static void status_update() {
     if (!s_status || !lv_obj_is_valid(s_status)) {
         return;
     }
+#if ARC_DEBUG_WIFI
+    static uint32_t s_st_n;
+    s_st_n++;
+    if (s_st_n <= 10u || (s_st_n % 80u) == 0u) {
+        wifi_dbgf("status_update #%u", (unsigned)s_st_n);
+    }
+#endif
     if (!s_toast.empty()) {
         lv_label_set_text(s_status, s_toast.c_str());
         lv_obj_set_style_text_color(s_status, lv_color_hex(APP_C_ICON_ACCENT_BLUE), LV_PART_MAIN);
@@ -79,6 +121,11 @@ static void status_update() {
         return;
     }
     if (!M5Comms.isReady()) {
+#if ARC_DEBUG_WIFI
+        if (s_st_n <= 10u) {
+            wifi_dbg("status: branch not_ready (isReady=0)");
+        }
+#endif
         lv_label_set_text(s_status, "Wi-Fi module not ready (SDIO / C6).");
         lv_obj_set_style_text_color(s_status, lv_color_hex(ui_text_mute()), LV_PART_MAIN);
         lv_obj_set_style_text_font(s_status, APP_FONT_SUB, LV_PART_MAIN);
@@ -86,6 +133,11 @@ static void status_update() {
     }
     if ((int)M5Comms.WiFi.status() == WL_CONNECTED) {
         arc_net_poll();
+#if ARC_DEBUG_WIFI
+        if (s_st_n <= 12u) {
+            wifi_dbg("status: branch connected (after arc_net_poll)");
+        }
+#endif
         char        b[200];
         String      ip = M5Comms.WiFi.localIPString();
         int         r  = M5Comms.WiFi.connectedRSSI();
@@ -218,53 +270,124 @@ static void show_result_msg(void *) {
     }
 }
 
-/* ---------- connect task ---------- */
-static void conn_task(void *arg) {
-    ConnJob *j = (ConnJob *)arg;
-    if (!j) {
-        vTaskDelete(NULL);
+/* ---------- connect (lv_timer, not FreeRTOS: WiFi.begin is unsafe on wconn) ---------- */
+static void connect_timer_release() {
+    if (s_connect_timer) {
+        lv_timer_delete(s_connect_timer);
+        s_connect_timer = NULL;
+    }
+    s_wifi_connecting.store(false, std::memory_order_release);
+}
+
+static void connect_drop_pending() {
+    if (s_connect_timer) {
+        void *u = lv_timer_get_user_data(s_connect_timer);
+        connect_timer_release();
+        if (u) {
+            lv_free(u);
+        }
+    } else {
+        s_wifi_connecting.store(false, std::memory_order_release);
+    }
+}
+
+static void connect_done_ok(ConnSt *st) {
+    connect_timer_release();
+    if (!st) {
         return;
     }
-    (void)M5Comms.WiFi.beginConnect(j->ssid, j->is_open ? nullptr : (j->pass[0] ? j->pass : nullptr));
-    for (int i = 0; i < 80; i++) {
-        if ((int)M5Comms.WiFi.status() == WL_CONNECTED) {
-            break;
-        }
-        vTaskDelay(pdMS_TO_TICKS(250));
-    }
-    if ((int)M5Comms.WiFi.status() == WL_CONNECTED) {
-        if (j->is_open) {
-            arc_wifi_save(j->ssid, "");
-        } else {
-            arc_wifi_save(j->ssid, j->pass);
-        }
-        arc_net_invalidate();
-        s_on_conn_info = kmsg_ok;
+    if (st->j.is_open) {
+        arc_wifi_save(st->j.ssid, "");
     } else {
-        s_on_conn_info = kmsg_fail;
+        arc_wifi_save(st->j.ssid, st->j.pass);
     }
-    lv_free(j);
+    arc_net_invalidate();
+    s_on_conn_info = kmsg_ok;
+    lv_free(st);
     (void)lv_async_call(show_result_msg, nullptr);
-    vTaskDelete(NULL);
+}
+
+static void connect_done_fail(ConnSt *st) {
+    connect_timer_release();
+    if (!st) {
+        return;
+    }
+    s_on_conn_info = kmsg_fail;
+    lv_free(st);
+    (void)lv_async_call(show_result_msg, nullptr);
+}
+
+static void connect_timer_cb(lv_timer_t *t) {
+    ConnSt *st = (ConnSt *)lv_timer_get_user_data(t);
+    (void)t;
+    if (!st) {
+        connect_timer_release();
+        return;
+    }
+#if ARC_DEBUG_WIFI
+    wifi_dbgf("connect_timer: tick# %d  status=%d", (int)st->tick, (int)M5Comms.WiFi.status());
+    Serial.flush();
+#endif
+    if ((int)M5Comms.WiFi.status() == WL_CONNECTED) {
+        connect_done_ok(st);
+        return;
+    }
+    st->tick++;
+    if (st->tick >= 79) {
+        connect_done_fail(st);
+    }
 }
 
 static void start_connect(const char *ssid, const char *pass, bool is_open) {
+#if ARC_DEBUG_WIFI
+    wifi_dbgf("start_connect: enter ssid=%.32s open=%d", ssid ? ssid : "(null)", (int)is_open);
+    Serial.flush();
+#endif
     if (!M5Comms.isReady() || !ssid || !ssid[0]) {
+#if ARC_DEBUG_WIFI
+        wifi_dbg("start_connect: abort (not ready or no ssid)");
+#endif
         return;
     }
-    ConnJob *j = (ConnJob *)lv_malloc(sizeof(ConnJob));
-    if (!j) {
+    connect_drop_pending();
+    ConnSt *st = (ConnSt *)lv_malloc(sizeof(ConnSt));
+    if (!st) {
         return;
     }
-    memset(j, 0, sizeof(*j));
-    (void)snprintf(j->ssid, sizeof j->ssid, "%s", ssid);
+    if (s_scan_running) {
+        s_toast   = "Wait for the current scan to finish, then try again.";
+        lv_free(st);
+        (void)status_update();
+        return;
+    }
+    s_wifi_connecting.store(true, std::memory_order_release);
+    memset(st, 0, sizeof(*st));
+    (void)snprintf(st->j.ssid, sizeof st->j.ssid, "%s", ssid);
     if (pass && pass[0] && !is_open) {
-        (void)snprintf(j->pass, sizeof j->pass, "%s", pass);
+        (void)snprintf(st->j.pass, sizeof st->j.pass, "%s", pass);
     }
-    j->is_open = is_open;
+    st->j.is_open = is_open;
     s_toast = "Connecting…";
     (void)status_update();
-    (void)xTaskCreate(conn_task, "wconn", 10000, j, 3, NULL);
+#if ARC_DEBUG_WIFI
+    wifi_dbg("start_connect: beginConnect (LVGL/loop context)");
+    Serial.flush();
+#endif
+    (void)M5Comms.WiFi.beginConnect(st->j.ssid, st->j.is_open ? nullptr : (st->j.pass[0] ? st->j.pass : nullptr));
+#if ARC_DEBUG_WIFI
+    wifi_dbgf("start_connect: after beginConnect status=%d", (int)M5Comms.WiFi.status());
+    Serial.flush();
+#endif
+    if ((int)M5Comms.WiFi.status() == WL_CONNECTED) {
+        connect_done_ok(st);
+        return;
+    }
+    s_connect_timer = lv_timer_create(connect_timer_cb, 250, st);
+    if (!s_connect_timer) {
+        connect_done_fail(st);
+        return;
+    }
+    lv_timer_set_repeat_count(s_connect_timer, 79);
 }
 
 /* ---------- password modal ---------- */
@@ -711,7 +834,13 @@ static void wifi_list_muted_caption(lv_obj_t *list, const char *msg) {
 }
 
 static void wifi_rebuild() {
+#if ARC_DEBUG_WIFI
+    wifi_dbg("wifi_rebuild: enter");
+#endif
     if (!s_list || !lv_obj_is_valid(s_list)) {
+#if ARC_DEBUG_WIFI
+        wifi_dbg("wifi_rebuild: early exit (no list)");
+#endif
         return;
     }
     lv_obj_clean(s_list);
@@ -788,7 +917,11 @@ static void wifi_rebuild() {
     }
 
     if (rows.empty()) {
-        wifi_list_muted_caption(s_list, "No networks in range.");
+        if (s_tap_to_scan_hint) {
+            wifi_list_muted_caption(s_list, "Tap \"Scan for networks\" to search.");
+        } else {
+            wifi_list_muted_caption(s_list, "No networks in range.");
+        }
     } else {
         for (const auto &ri : rows) {
             wifi_add_settings_sidebar_item(s_list, &ri.ap, ri.current);
@@ -802,17 +935,37 @@ static void wifi_rebuild() {
             (void)lv_obj_update_layout(pl);
         }
     }
+#if ARC_DEBUG_WIFI
+    wifi_dbg("wifi_rebuild: done");
+#endif
 }
 
 /* ---------- scan ---------- */
 static void wifi_scan_task(void *arg) {
     (void)arg;
+#if ARC_DEBUG_WIFI
+    wifi_dbg("wifi_scan_task: 1 start");
+    Serial.flush();
+#endif
     s_scan_err[0] = 0;
     std::vector<WifiApRow> local;
-    if (!M5Comms.isReady()) {
+    if (s_wifi_connecting.load(std::memory_order_acquire)) {
+        (void)snprintf(s_scan_err, sizeof s_scan_err, "Connecting. Try again in a few seconds.");
+    } else if (!M5Comms.isReady()) {
+#if ARC_DEBUG_WIFI
+        wifi_dbg("wifi_scan_task: 2 isReady=0");
+#endif
         (void)snprintf(s_scan_err, sizeof s_scan_err, "C6 not ready.");
     } else {
+#if ARC_DEBUG_WIFI
+        wifi_dbg("wifi_scan_task: 3 before scanNetworks");
+        Serial.flush();
+#endif
         const int n = M5Comms.WiFi.scanNetworks();
+#if ARC_DEBUG_WIFI
+        wifi_dbgf("wifi_scan_task: 4 after scanNetworks n=%d", n);
+        Serial.flush();
+#endif
         if (n < 0) {
             (void)snprintf(s_scan_err, sizeof s_scan_err, "Scan failed.");
         } else {
@@ -829,7 +982,15 @@ static void wifi_scan_task(void *arg) {
                 w.enc      = M5Comms.WiFi.encryptionType(i);
                 local.push_back(w);
             }
+#if ARC_DEBUG_WIFI
+            wifi_dbgf("wifi_scan_task: 5 collected %u APs (before scanDelete)", (unsigned)local.size());
+            Serial.flush();
+#endif
             M5Comms.WiFi.scanDelete();
+#if ARC_DEBUG_WIFI
+            wifi_dbg("wifi_scan_task: 6 after scanDelete");
+            Serial.flush();
+#endif
         }
     }
     std::sort(
@@ -839,6 +1000,10 @@ static void wifi_scan_task(void *arg) {
     s_scan_done    = true;
     s_scan_running = false;
     xSemaphoreGive(s_aps_mutex);
+#if ARC_DEBUG_WIFI
+    wifi_dbg("wifi_scan_task: 7 done (s_scan_done=1)");
+    Serial.flush();
+#endif
     vTaskDelete(NULL);
 }
 
@@ -846,9 +1011,22 @@ static void wifi_start_scan() {
     if (s_scan_running) {
         return;
     }
+    if (s_wifi_connecting.load(std::memory_order_acquire)) {
+        s_toast = "Still connecting. Try scan again in a few seconds.";
+        (void)status_update();
+        return;
+    }
+#if ARC_DEBUG_WIFI
+    wifi_dbg("wifi_start_scan: creating wscan task");
+    Serial.flush();
+#endif
+    s_tap_to_scan_hint = false;
     s_scan_running = true;
     s_scan_done    = false;
     if (xTaskCreate(wifi_scan_task, "wscan", 12000, NULL, 1, NULL) != pdPASS) {
+#if ARC_DEBUG_WIFI
+        wifi_dbg("wifi_start_scan: xTaskCreate FAILED");
+#endif
         s_scan_running = false;
         (void)snprintf(s_scan_err, sizeof s_scan_err, "Task failed");
         s_scan_done = true;
@@ -861,6 +1039,10 @@ static void wifi_start_scan() {
 static void wifi_poll_cb(lv_timer_t *t) {
     (void)t;
     if (s_scan_done) {
+#if ARC_DEBUG_WIFI
+        wifi_dbg("wifi_poll_cb: scan finished → status_update + rebuild");
+        Serial.flush();
+#endif
         s_scan_done = false;
         status_update();
         wifi_rebuild();
@@ -876,6 +1058,11 @@ static void wifi_scan_btn_cb(lv_event_t *e) {
 }
 
 void view_wifi() {
+#if ARC_DEBUG_WIFI
+    wifi_dbg("view_wifi: 1 enter");
+    Serial.flush();
+#endif
+    connect_drop_pending();
     if (!s_aps_mutex) {
         s_aps_mutex = xSemaphoreCreateMutex();
     }
@@ -885,9 +1072,14 @@ void view_wifi() {
     }
     s_rebuild = +[]() { wifi_rebuild(); };
     shell_mount("Wi-Fi", nullptr, nullptr, false);
+#if ARC_DEBUG_WIFI
+    wifi_dbg("view_wifi: 2 after shell_mount");
+    Serial.flush();
+#endif
     s_list   = NULL;
     s_status = NULL;
-    s_scan_done = false;
+    s_scan_done      = false;
+    s_tap_to_scan_hint = true;
 
     lv_obj_t *c = content_ptr();
     lv_obj_set_width(c, lv_pct(100));
@@ -952,6 +1144,10 @@ void view_wifi() {
     lv_obj_set_style_text_align(s_status, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_obj_set_style_pad_bottom(s_status, 6, LV_PART_MAIN);
     status_update();
+#if ARC_DEBUG_WIFI
+    wifi_dbg("view_wifi: 3 after first status_update (s_list not created yet)");
+    Serial.flush();
+#endif
     s_list = lv_obj_create(panel);
     wifi_theme_clear_obj_pad(s_list);
     lv_obj_set_width(s_list, lv_pct(100));
@@ -973,6 +1169,13 @@ void view_wifi() {
 
     s_poll = lv_timer_create(wifi_poll_cb, 400, NULL);
     lv_timer_set_repeat_count(s_poll, -1);
-    wifi_start_scan();
+#if ARC_DEBUG_WIFI
+    wifi_dbg("view_wifi: 4 before wifi_rebuild + poll running");
+    Serial.flush();
+#endif
     wifi_rebuild();
+#if ARC_DEBUG_WIFI
+    wifi_dbg("view_wifi: 5 leave (ok)");
+    Serial.flush();
+#endif
 }

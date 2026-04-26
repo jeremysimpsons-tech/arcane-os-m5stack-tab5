@@ -44,22 +44,32 @@ uint32_t ui_cpu_chip_idle(void) {
 }
 
 void app_style_ios_slider(lv_obj_t *sl) {
+    /* Explicit sizing so the slider doesn't collapse in flex layouts. */
+    lv_obj_set_height(sl, 28);
+    lv_obj_set_style_pad_all(sl, 2, LV_PART_MAIN);
+
     if (s_ui_dark_mode) {
         lv_obj_set_style_bg_color(sl, lv_color_hex(0x2C2C2E), LV_PART_MAIN);
+        lv_obj_set_style_border_color(sl, lv_color_hex(0x3A3A3C), LV_PART_MAIN);
         lv_obj_set_style_bg_color(sl, lv_color_hex(APP_C_ICON_ACCENT_BLUE), LV_PART_INDICATOR);
         lv_obj_set_style_bg_color(sl, lv_color_hex(0xFFFFFF), LV_PART_KNOB);
         lv_obj_set_style_border_color(sl, lv_color_hex(0x636366), LV_PART_KNOB);
     } else {
-        lv_obj_set_style_bg_color(sl, lv_color_hex(0xE5E5EA), LV_PART_MAIN);
+        /* Slightly darker track to stay visible on card backgrounds. */
+        lv_obj_set_style_bg_color(sl, lv_color_hex(0xD1D1D6), LV_PART_MAIN);
+        lv_obj_set_style_border_color(sl, lv_color_hex(0xC7C7CC), LV_PART_MAIN);
         lv_obj_set_style_bg_color(sl, lv_color_hex(APP_C_ICON_ACCENT_BLUE), LV_PART_INDICATOR);
         lv_obj_set_style_bg_color(sl, lv_color_hex(0xFFFFFF), LV_PART_KNOB);
         lv_obj_set_style_border_color(sl, lv_color_hex(0xD1D1D6), LV_PART_KNOB);
     }
     lv_obj_set_style_bg_opa(sl, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_radius(sl, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+    lv_obj_set_style_border_width(sl, 1, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(sl, LV_OPA_COVER, LV_PART_INDICATOR);
     lv_obj_set_style_radius(sl, LV_RADIUS_CIRCLE, LV_PART_INDICATOR);
     lv_obj_set_style_bg_opa(sl, LV_OPA_COVER, LV_PART_KNOB);
+    lv_obj_set_style_width(sl, 22, LV_PART_KNOB);
+    lv_obj_set_style_height(sl, 22, LV_PART_KNOB);
     lv_obj_set_style_border_width(sl, 1, LV_PART_KNOB);
 }
 

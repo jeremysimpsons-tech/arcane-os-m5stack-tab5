@@ -139,39 +139,32 @@ void shell_wifi_refresh() {
         lv_obj_set_style_text_decor(s_shell_wifi.ic, LV_TEXT_DECOR_NONE, LV_PART_MAIN);
         /* 256 = 1× in LVGL; avoid large scale — overlaps neighbours. */
         lv_obj_set_style_transform_scale(s_shell_wifi.ic, 256, LV_PART_MAIN);
-        lv_obj_add_flag(s_shell_wifi.bars, LV_OBJ_FLAG_HIDDEN);
         return;
     }
-    lv_label_set_text(s_shell_wifi.ic, LV_SYMBOL_WIFI);
-    lv_obj_set_style_text_color(s_shell_wifi.ic, lv_color_hex(APP_C_TEXT), LV_PART_MAIN);
-    int r = M5Comms.WiFi.connectedRSSI();
-    int sc = 256;
+    const int    r  = M5Comms.WiFi.connectedRSSI();
+    int          sc = 256;
+    uint32_t     hex;
     if (r > -55) {
-        sc = 280;
+        sc  = 280;
+        hex = APP_C_TEXT;
     } else if (r > -70) {
-        sc = 268;
+        sc  = 268;
+        hex = 0xAEAEB2; /* between secondary and mute — "mid" signal */
+    } else {
+        sc  = 256;
+        hex = 0x8E8E93; /* weak */
     }
+    lv_label_set_text(s_shell_wifi.ic, LV_SYMBOL_WIFI);
+    lv_obj_set_style_text_color(s_shell_wifi.ic, lv_color_hex(hex), LV_PART_MAIN);
     lv_obj_set_style_transform_scale(s_shell_wifi.ic, sc, LV_PART_MAIN);
     lv_obj_set_style_transform_pivot_x(s_shell_wifi.ic, 8, LV_PART_MAIN);
     lv_obj_set_style_transform_pivot_y(s_shell_wifi.ic, 8, LV_PART_MAIN);
-    lv_obj_remove_flag(s_shell_wifi.bars, LV_OBJ_FLAG_HIDDEN);
-    lv_label_set_text(s_shell_wifi.bars, LV_SYMBOL_BARS);
-    lv_obj_set_style_text_color(s_shell_wifi.bars, lv_color_hex(APP_C_TEXT), LV_PART_MAIN);
-    int bsc = 256;
-    if (r > -55) {
-        bsc = 276;
-    } else if (r > -70) {
-        bsc = 266;
-    }
-    lv_obj_set_style_transform_scale(s_shell_wifi.bars, bsc, LV_PART_MAIN);
     arc_net_poll();
     const bool online = arc_net_is_online();
     if (online) {
         lv_obj_set_style_text_decor(s_shell_wifi.ic, LV_TEXT_DECOR_NONE, LV_PART_MAIN);
-        lv_obj_set_style_text_decor(s_shell_wifi.bars, LV_TEXT_DECOR_NONE, LV_PART_MAIN);
     } else {
         lv_obj_set_style_text_decor(s_shell_wifi.ic, LV_TEXT_DECOR_STRIKETHROUGH, LV_PART_MAIN);
-        lv_obj_set_style_text_decor(s_shell_wifi.bars, LV_TEXT_DECOR_STRIKETHROUGH, LV_PART_MAIN);
     }
 }
 
@@ -360,17 +353,13 @@ void shell_mount(const char *title, void (*on_right)(lv_event_t *), const char *
     lv_obj_set_layout(wifiw, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(wifiw, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(wifiw, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(wifiw, 2, LV_PART_MAIN);
-    /* Gap before dark-mode / battery cluster (Wi-Fi glyphs can scale and need room). */
+    /* Gap before dark-mode / battery cluster (Wi-Fi glyph can scale and needs room). */
     lv_obj_set_style_pad_right(wifiw, 10, LV_PART_MAIN);
     lv_obj_remove_flag(wifiw, LV_OBJ_FLAG_SCROLLABLE);
     s_shell_wifi.wrap = wifiw;
     s_shell_wifi.ic   = lv_label_create(wifiw);
     lv_label_set_text(s_shell_wifi.ic, LV_SYMBOL_WIFI);
     lv_obj_set_style_text_font(s_shell_wifi.ic, APP_FONT_SUB, LV_PART_MAIN);
-    s_shell_wifi.bars = lv_label_create(wifiw);
-    lv_label_set_text(s_shell_wifi.bars, LV_SYMBOL_BARS);
-    lv_obj_set_style_text_font(s_shell_wifi.bars, APP_FONT_CAP, LV_PART_MAIN);
     shell_wifi_refresh();
 
     lv_obj_t *theme_ic = lv_label_create(brow);
