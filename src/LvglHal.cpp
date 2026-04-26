@@ -1,8 +1,10 @@
 #include "LvglHal.hpp"
 #include "Views.hpp"
 #include "arcane_lvgl.h"
+#include "app_config.h"
 #include <Arduino.h>
 #include <M5Unified.h>
+#include <Preferences.h>
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
@@ -111,6 +113,7 @@ void LvglHal::init() {
     lv_indev_t *indev = lv_indev_create();
     lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
     lv_indev_set_read_cb(indev, touch_read_cb);
+    lv_indev_set_display(indev, disp);
 
     const esp_timer_create_args_t targs = {.callback = &tick_cb, .name = "lv_tick"};
     esp_timer_handle_t tmr;
@@ -128,6 +131,20 @@ void LvglHal::set_touch_cal(const TouchCalData &c) {
 }
 void LvglHal::get_touch_cal(TouchCalData *out) {
     *out = s_cal;
+}
+
+void LvglHal::clear_touch_cal_from_nvs() {
+    s_cal    = {};
+    s_have_cal = false;
+    Preferences p;
+    if (p.begin(APP_NVS_NAMESPACE, false)) {
+        p.remove("m");
+        p.remove("x0");
+        p.remove("x1");
+        p.remove("y0");
+        p.remove("y1");
+        p.end();
+    }
 }
 
 void LvglHal::click_feedback() {

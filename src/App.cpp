@@ -6,9 +6,6 @@
 void app_show(AppScreen s, void *user_ctx) {
     /* Always call from LVGL context while the main loop holds LvglHal::lock(), or from setup with same lock. */
     switch (s) {
-    case AppScreen::Calibrate:
-        view_calibrate();
-        break;
     case AppScreen::Splash:
         view_splash();
         break;
@@ -17,9 +14,6 @@ void app_show(AppScreen s, void *user_ctx) {
         break;
     case AppScreen::Files:
         view_files(user_ctx);
-        break;
-    case AppScreen::WiFi:
-        view_wifi();
         break;
     case AppScreen::Camera:
         view_camera();
@@ -45,11 +39,11 @@ void app_show(AppScreen s, void *user_ctx) {
     case AppScreen::Status:
         view_status();
         break;
+    case AppScreen::WiFi:
+        view_wifi();
+        break;
     case AppScreen::Settings:
         view_settings();
-        break;
-    case AppScreen::TouchCalibrate:
-        view_touch_calibrate();
         break;
     case AppScreen::PowerMenu:
         view_power_menu();

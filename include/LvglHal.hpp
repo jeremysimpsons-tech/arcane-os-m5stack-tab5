@@ -14,6 +14,8 @@ class LvglHal {
     static void unlock();
     static void set_touch_cal(const TouchCalData &c);
     static void get_touch_cal(TouchCalData *out);
+    /** Remove touch calibration from NVS and clear in-RAM cal (call before restart). */
+    static void clear_touch_cal_from_nvs();
     /** Short tap feedback (speaker if available). */
     static void click_feedback();
 };

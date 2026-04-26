@@ -38,7 +38,7 @@ Touch-first “shell” UI for the **M5Stack Tab5** (ESP32-P4) using **LVGL 9**,
 ### Other apps (scaffold / demo)
 
 - **Files:** storage selector row (Internal / SD) and a demo file list; real filesystem integration is left for later work.
-- **Wi-Fi, Camera, IMU, Power, SD, touch test, I2C, RTC** screens are present as lightweight placeholders or small demos, consistent with the shared shell.
+- **Camera, IMU, Power, SD, touch test, I2C, RTC** screens are present as lightweight placeholders or small demos, consistent with the shared shell.
 
 ### Build notes
 

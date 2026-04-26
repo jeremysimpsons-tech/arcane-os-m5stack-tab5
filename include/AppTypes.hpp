@@ -1,13 +1,11 @@
 #pragma once
 #include <cstdint>
 
-/* Logical screens for app_show(); Calibrate + Splash have no global shell. */
+/* Logical screens for app_show(); Splash has no global shell. */
 enum class AppScreen : uint8_t {
-    Calibrate,
     Splash,
     Home,
     Files,
-    WiFi,
     Camera,
     Imu,
     Power,
@@ -17,7 +15,7 @@ enum class AppScreen : uint8_t {
     Rtc,
     Settings,
     Status, /* system status: CPU, storage, devices, clock sync */
-    TouchCalibrate, /* 4-point cal; same NVS save as first-boot, returns Home when done */
+    WiFi,   /* C6: Tab5M5Comms (M5 style bridge), not WiFi.h in app sources */
     PowerMenu,      /* system power sheet from top bar (separate from Power app tile) */
     COUNT
 };
