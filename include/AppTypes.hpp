@@ -16,6 +16,7 @@ enum class AppScreen : uint8_t {
     Settings,
     Status, /* system status: CPU, storage, devices, clock sync */
     WiFi,   /* C6: Tab5M5Comms (M5 style bridge), not WiFi.h in app sources */
+    Ogsm,   /* Off Grid Secure Messaging */
     PowerMenu,      /* system power sheet from top bar (separate from Power app tile) */
     COUNT
 };

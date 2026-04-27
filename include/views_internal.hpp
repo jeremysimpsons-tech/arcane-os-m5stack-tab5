@@ -26,6 +26,13 @@ struct ShellTopWifi {
     lv_obj_t *ic;
 };
 
+/** OGSM: envelope + unread badge (hidden when zero). */
+struct ShellTopOgsm {
+    lv_obj_t *wrap;
+    lv_obj_t *ic;
+    lv_obj_t *badge;
+};
+
 extern bool     s_ui_dark_mode;
 
 extern bool   s_splash_dismissed;
@@ -33,6 +40,7 @@ extern bool   s_splash_dismissed;
 extern lv_obj_t *s_cbody;
 extern ShellBatt    s_shell_batt;
 extern ShellTopWifi s_shell_wifi;
+extern ShellTopOgsm s_shell_ogsm;
 extern lv_timer_t  *s_shell_batt_timer;
 
 extern uint32_t s_backlight_timeout_ms;
@@ -50,6 +58,7 @@ extern bool s_mesh_gateway;
 extern int  s_bl_timeout_s;
 extern int  s_dim_timeout_s;
 extern uint8_t s_volume_pct;
+extern uint8_t s_startup_volume_pct;
 extern bool  s_settings_dirty;
 extern lv_obj_t *s_settings_save_top;
 extern lv_obj_t *s_settings_save_bottom;
@@ -90,6 +99,7 @@ void settings_content_title(lv_obj_t *parent, const char *t);
 void home_icon_center_pivot(lv_obj_t *lbl);
 void home_icon_size_cb(lv_event_t *e);
 void shell_wifi_refresh();
+void shell_ogsm_refresh();
 
 /* Tools / Files */
 void views_noop_right(lv_event_t *e);

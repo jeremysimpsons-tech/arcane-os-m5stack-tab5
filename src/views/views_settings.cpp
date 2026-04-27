@@ -86,6 +86,15 @@ void arc_settings_load_from_nvs() {
         s_volume_pct = (uint8_t)vol_d;
         M5.Speaker.setVolume((uint8_t)((255u * vol_d) / 100u));
     }
+    {
+        /* Startup sound volume is independent from system volume. */
+        uint32_t svol = p.getUInt("svol", 101u);
+        if (svol > 100u) {
+            svol = (uint32_t)((100u * (uint32_t)APP_SPLASH_VOLUME) / 255u);
+            if (svol > 100u) svol = 100u;
+        }
+        s_startup_volume_pct = (uint8_t)svol;
+    }
     s_ui_dark_mode = p.getBool("dark", false);
     p.end();
 }
@@ -113,6 +122,7 @@ static void settings_persist_to_nvs() {
     p.putBool("mesh", s_mesh_gateway);
     p.putUInt("bri", (uint32_t)s_backlight_restore);
     p.putUInt("vol", (uint32_t)s_volume_pct);
+    p.putUInt("svol", (uint32_t)s_startup_volume_pct);
     p.putBool("dark", s_ui_dark_mode);
     p.end();
 }
@@ -373,56 +383,51 @@ static void settings_add_slider_row(lv_obj_t *parent, const char *label, int min
     lv_obj_t *box = lv_obj_create(parent);
     lv_obj_set_width(box, lv_pct(100));
     app_style_muted_card(box);
-    lv_obj_set_style_pad_all(box, 8, LV_PART_MAIN);
-    lv_obj_set_style_pad_row(box, 6, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(box, 10, LV_PART_MAIN);
     lv_obj_remove_flag(box, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_scrollbar_mode(box, LV_SCROLLBAR_MODE_OFF);
-    lv_obj_set_layout(box, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(box, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(box, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    /* Recreate slider rows without flex; match the working debug slider behavior. */
+    lv_obj_set_layout(box, LV_LAYOUT_NONE);
 
-    lv_obj_t *top = lv_obj_create(box);
-    lv_obj_set_width(top, lv_pct(100));
-    lv_obj_set_style_bg_opa(top, LV_OPA_TRANSP, LV_PART_MAIN);
-    lv_obj_set_style_border_width(top, 0, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(top, 0, LV_PART_MAIN);
-    lv_obj_remove_flag(top, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_scrollbar_mode(top, LV_SCROLLBAR_MODE_OFF);
-    lv_obj_set_layout(top, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(top, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(top, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-
-    lv_obj_t *l = lv_label_create(top);
+    lv_obj_t *l = lv_label_create(box);
     lv_label_set_text(l, label);
     lv_obj_set_style_text_font(l, APP_FONT_BODY, LV_PART_MAIN);
     lv_obj_set_style_text_color(l, lv_color_hex(ui_text_primary()), LV_PART_MAIN);
+    lv_obj_align(l, LV_ALIGN_TOP_LEFT, 0, 0);
 
-    lv_obj_t *val = lv_label_create(top);
+    lv_obj_t *val = lv_label_create(box);
     lv_obj_set_style_text_font(val, APP_FONT_BODY, LV_PART_MAIN);
     lv_obj_set_style_text_color(val, lv_color_hex(ui_text_mute()), LV_PART_MAIN);
+    lv_obj_align(val, LV_ALIGN_TOP_RIGHT, 0, 0);
 
     lv_obj_t *sl = lv_slider_create(box);
     lv_obj_set_width(sl, lv_pct(100));
-    lv_obj_set_height(sl, 34);
+    /* Slim iOS-like slider: thin track + small knob. */
+    constexpr int kSliderH   = 28;
+    constexpr int kKnob      = 18;
+    constexpr int kRowTopPad = 30;
+    lv_obj_set_height(sl, (lv_coord_t)kSliderH);
+    lv_obj_align(sl, LV_ALIGN_TOP_LEFT, 0, (lv_coord_t)kRowTopPad);
     lv_slider_set_range(sl, minv, maxv);
     lv_slider_set_value(sl, v, LV_ANIM_OFF);
-    /* Force visible slider styling (track/indicator/knob). */
-    lv_obj_set_style_bg_opa(sl, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(sl, lv_color_hex(s_ui_dark_mode ? 0x3A3A3C : 0xD1D1D6), LV_PART_MAIN);
-    lv_obj_set_style_radius(sl, LV_RADIUS_CIRCLE, LV_PART_MAIN);
-    lv_obj_set_style_border_width(sl, 2, LV_PART_MAIN);
-    lv_obj_set_style_border_color(sl, lv_color_hex(s_ui_dark_mode ? 0x636366 : 0xAEAEB2), LV_PART_MAIN);
-
-    lv_obj_set_style_bg_opa(sl, LV_OPA_COVER, LV_PART_INDICATOR);
-    lv_obj_set_style_bg_color(sl, lv_color_hex(APP_C_ICON_ACCENT_BLUE), LV_PART_INDICATOR);
-    lv_obj_set_style_radius(sl, LV_RADIUS_CIRCLE, LV_PART_INDICATOR);
-
-    lv_obj_set_style_bg_opa(sl, LV_OPA_COVER, LV_PART_KNOB);
-    lv_obj_set_style_bg_color(sl, lv_color_hex(0xFFFFFF), LV_PART_KNOB);
-    lv_obj_set_style_border_width(sl, 2, LV_PART_KNOB);
-    lv_obj_set_style_border_color(sl, lv_color_hex(s_ui_dark_mode ? 0x636366 : 0x8E8E93), LV_PART_KNOB);
-    lv_obj_set_style_width(sl, 26, LV_PART_KNOB);
-    lv_obj_set_style_height(sl, 26, LV_PART_KNOB);
+    /* Style like debug slider (explicit selectors). */
+    lv_obj_set_style_bg_opa(sl, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(sl, lv_color_hex(s_ui_dark_mode ? 0x2C2C2E : 0xC7C7CC), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(sl, LV_OPA_COVER, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(sl, lv_color_hex(APP_C_ICON_ACCENT_BLUE), LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(sl, LV_OPA_COVER, LV_PART_KNOB | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(sl, lv_color_hex(0xFFFFFF), LV_PART_KNOB | LV_STATE_DEFAULT);
+    /* Thin track + compact knob. */
+    lv_obj_set_style_pad_all(sl, 2, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_radius(sl, LV_RADIUS_CIRCLE, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_radius(sl, LV_RADIUS_CIRCLE, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_radius(sl, LV_RADIUS_CIRCLE, LV_PART_KNOB | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_width(sl, 1, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_color(sl, lv_color_hex(s_ui_dark_mode ? 0x636366 : 0x8E8E93), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_width(sl, kKnob, LV_PART_KNOB | LV_STATE_DEFAULT);
+    lv_obj_set_style_height(sl, kKnob, LV_PART_KNOB | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_width(sl, 1, LV_PART_KNOB | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_color(sl, lv_color_hex(s_ui_dark_mode ? 0x8E8E93 : 0x3A3A3C), LV_PART_KNOB | LV_STATE_DEFAULT);
     /* Keep default interaction flags; removing SCROLLABLE can break drag on some LVGL builds. */
     lv_obj_set_scrollbar_mode(sl, LV_SCROLLBAR_MODE_OFF);
 
@@ -441,22 +446,28 @@ static void settings_add_slider_row(lv_obj_t *parent, const char *label, int min
         lv_obj_add_event_cb(sl, settings_slider_ud_free_cb, LV_EVENT_DELETE, nullptr);
     }
 
+    int y = kRowTopPad + kSliderH + 10;
     if (hint1 && hint1[0]) {
         lv_obj_t *h1 = lv_label_create(box);
         lv_label_set_text(h1, hint1);
         lv_obj_set_width(h1, lv_pct(100));
         lv_label_set_long_mode(h1, LV_LABEL_LONG_MODE_WRAP);
-        lv_obj_set_style_text_font(h1, APP_FONT_CAP, LV_PART_MAIN);
+        lv_obj_set_style_text_font(h1, APP_FONT_SUB, LV_PART_MAIN);
         lv_obj_set_style_text_color(h1, lv_color_hex(ui_text_mute()), LV_PART_MAIN);
+        lv_obj_align(h1, LV_ALIGN_TOP_LEFT, 0, y);
+        y += 28;
     }
     if (hint2 && hint2[0]) {
         lv_obj_t *h2 = lv_label_create(box);
         lv_label_set_text(h2, hint2);
         lv_obj_set_width(h2, lv_pct(100));
         lv_label_set_long_mode(h2, LV_LABEL_LONG_MODE_WRAP);
-        lv_obj_set_style_text_font(h2, APP_FONT_CAP, LV_PART_MAIN);
+        lv_obj_set_style_text_font(h2, APP_FONT_SUB, LV_PART_MAIN);
         lv_obj_set_style_text_color(h2, lv_color_hex(ui_text_mute()), LV_PART_MAIN);
+        lv_obj_align(h2, LV_ALIGN_TOP_LEFT, 0, y);
+        y += 28;
     }
+    lv_obj_set_height(box, (lv_coord_t)(y + 6));
 }
 
 static void rtc_mbox_ok_cb(lv_event_t *e) {
@@ -501,6 +512,13 @@ static void settings_build_content(lv_obj_t *panel) {
                                 [](int pct) {
                                     s_volume_pct = (uint8_t)pct;
                                     M5.Speaker.setVolume((uint8_t)((255u * (uint32_t)pct) / 100u));
+                                    settings_mark_dirty();
+                                },
+                                "%d%%");
+
+        settings_add_slider_row(panel, "Startup sound volume", 0, 100, (int)s_startup_volume_pct,
+                                [](int pct) {
+                                    s_startup_volume_pct = (uint8_t)pct;
                                     settings_mark_dirty();
                                 },
                                 "%d%%");

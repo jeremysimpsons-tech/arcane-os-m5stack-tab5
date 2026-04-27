@@ -21,3 +21,4 @@ void view_status();
 void view_wifi();
 void view_settings();
 void view_power_menu();
+void view_ogsm();

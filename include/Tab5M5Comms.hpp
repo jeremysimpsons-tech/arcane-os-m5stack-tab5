@@ -2,8 +2,9 @@
  * Community Tab5 pattern: communicate with the ESP32-C6 (WiFi) from the P4 over SDIO using
  * Arduino WiFi in ONE module only, after M5.begin() has run (PMIC / IO expander for C6 power).
  *
- * Your sketch used `M5.Network.WiFi.*` — M5Unified 0.2.x has no M5.Network; this mirrors that API
- * as `M5Comms` so the rest of the app never includes <WiFi.h>.
+ * Note: M5Unified does not expose `M5.Network` on the global `M5` object.
+ * This repo provides a small facade `M5Network` (see `include/M5Network.hpp`) so app code can use
+ * `M5Network.begin(); M5Network.WiFi.*` without including <WiFi.h>.
  */
 #pragma once
 #include <WString.h>
@@ -30,7 +31,16 @@ struct M5Comms_ {
     } WiFi;
     /** True once SDIO pins + WiFi stack are up for the C6 (setPins + STA). */
     bool isReady();
+    /** Bring up the hosted bridge (setPins + STA), without connecting. Safe after `M5.begin()`. */
+    bool networkBegin();
+    /** Hosted STA MAC address (6 bytes). */
+    void sta_mac(uint8_t out[6]);
+
+    /** ESP-NOW-like send/recv hook; on ESP32-P4 it is typically stubbed (no link symbols yet). */
+    bool espnow_begin();
+    int  espnow_pop(uint8_t *buf, int cap);
+    bool espnow_send_bcast(const uint8_t *d, size_t n);
 };
 
-/** Global, same role as the community `M5.Network` helper. */
+/** Global: hosted bridge API; prefer `M5Network` facade in app code. */
 extern M5Comms_ M5Comms;

@@ -3,6 +3,7 @@
  * Logic follows M5’s Tab5 Wi-Fi examples: WiFi.setPins(BOARD_SDIO_*) / STA / scan; see M5 Tab5 Wi-Fi docs.
  */
 #include "Tab5M5Comms.hpp"
+#include "M5Network.hpp"
 #include "app_config.h"
 #include <Arduino.h>
 #include "sdkconfig.h"
@@ -15,6 +16,40 @@
 #include <pins_arduino.h>
 #endif
 #include "freertos/semphr.h"
+#include <string.h>
+
+/* esp_now headers exist for ESP32-P4 remote Wi-Fi builds but symbols are not in the link set yet. */
+#if defined(CONFIG_IDF_TARGET_ESP32P4)
+#define M5COMMS_HAS_ESP_NOW 0
+#elif __has_include(<esp_now.h>)
+#include <esp_now.h>
+#include <esp_wifi.h>
+#define M5COMMS_HAS_ESP_NOW 1
+#endif
+#ifndef M5COMMS_HAS_ESP_NOW
+#define M5COMMS_HAS_ESP_NOW 0
+#endif
+
+#if M5COMMS_HAS_ESP_NOW
+struct M5EspQ {
+    uint8_t len;
+    uint8_t data[250];
+};
+static QueueHandle_t s_espq = nullptr;
+static void esp_now_rx_cb(const esp_now_recv_info_t *info, const uint8_t *data, int data_len) {
+    (void)info;
+    if (!s_espq || !data || data_len <= 0) {
+        return;
+    }
+    M5EspQ m;
+    if (data_len > (int)sizeof m.data) {
+        data_len = (int)sizeof m.data;
+    }
+    m.len = (uint8_t)data_len;
+    memcpy(m.data, data, (size_t)data_len);
+    (void)xQueueSend(s_espq, &m, 0);
+}
+#endif
 
 static bool              s_bridge;
 static SemaphoreHandle_t s_wifi_api_mtx;
@@ -66,6 +101,99 @@ bool M5Comms_::isReady() {
     return ok;
 #endif
 }
+
+bool M5Comms_::networkBegin() {
+#if !(SOC_WIFI_SUPPORTED || CONFIG_ESP_WIFI_REMOTE_ENABLED)
+    return false;
+#else
+    wifi_lock();
+    ensure_bridge();
+    const bool ok = s_bridge;
+    wifi_unlock();
+    return ok;
+#endif
+}
+
+void M5Comms_::sta_mac(uint8_t out[6]) {
+    if (!out) {
+        return;
+    }
+    memset(out, 0, 6u);
+    wifi_lock();
+    ensure_bridge();
+    (void)::WiFi.macAddress(out);
+    wifi_unlock();
+}
+
+#if M5COMMS_HAS_ESP_NOW
+static bool s_espnow_inited = false;
+bool        M5Comms_::espnow_begin() {
+    (void)networkBegin();
+    wifi_lock();
+    ensure_bridge();
+    if (!s_espq) {
+        s_espq = xQueueCreate(24, sizeof(M5EspQ));
+    }
+    if (!s_espq) {
+        wifi_unlock();
+        return false;
+    }
+    const esp_err_t e = esp_now_init();
+    if (e != ESP_OK && e != ESP_ERR_INVALID_STATE) {
+        wifi_unlock();
+        return false;
+    }
+    if (!s_espnow_inited) {
+        s_espnow_inited = true;
+        (void)esp_now_register_recv_cb(esp_now_rx_cb);
+        esp_now_peer_info_t p;
+        memset(&p, 0, sizeof p);
+        const uint8_t bcast[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+        memcpy(p.peer_addr, bcast, 6u);
+        p.channel = 0;
+        p.ifidx   = WIFI_IF_STA;
+        p.encrypt = false;
+        (void)esp_now_add_peer(&p);
+    }
+    wifi_unlock();
+    return true;
+}
+
+int M5Comms_::espnow_pop(uint8_t *buf, int cap) {
+    if (!buf || cap <= 0 || !s_espq) {
+        return 0;
+    }
+    M5EspQ m;
+    if (xQueueReceive(s_espq, &m, 0) != pdTRUE) {
+        return 0;
+    }
+    int n = (int)m.len;
+    if (n > cap) {
+        n = cap;
+    }
+    memcpy(buf, m.data, (size_t)n);
+    return n;
+}
+
+bool M5Comms_::espnow_send_bcast(const uint8_t *d, size_t n) {
+    if (!d || n == 0u || n > 250u) {
+        return false;
+    }
+    const uint8_t bcast[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+    wifi_lock();
+    ensure_bridge();
+    const esp_err_t e = esp_now_send(bcast, const_cast<uint8_t *>(d), (int)n);
+    wifi_unlock();
+    return e == ESP_OK;
+}
+#else
+bool M5Comms_::espnow_begin() {
+    (void)networkBegin();
+    return false;
+}
+int  M5Comms_::espnow_pop(uint8_t *, int) { return 0; }
+bool M5Comms_::espnow_send_bcast(const uint8_t *, size_t) { return false; }
+#endif
 
 int M5Comms_::WiFi_::scanNetworks() {
     wifi_lock();
@@ -207,10 +335,21 @@ bool M5Comms_::WiFi_::probeTcp(const char *host, uint16_t port, uint32_t timeout
 }
 
 M5Comms_ M5Comms;
+bool      M5Network_::begin() { return M5Comms.networkBegin(); }
+M5Network_ M5Network{M5Comms.WiFi};
 
 #else
 
 bool M5Comms_::isReady() { return false; }
+bool M5Comms_::networkBegin() { return false; }
+void M5Comms_::sta_mac(uint8_t out[6]) {
+    if (out) {
+        memset(out, 0, 6u);
+    }
+}
+bool M5Comms_::espnow_begin() { return false; }
+int  M5Comms_::espnow_pop(uint8_t *, int) { return 0; }
+bool M5Comms_::espnow_send_bcast(const uint8_t *, size_t) { return false; }
 int  M5Comms_::WiFi_::scanNetworks() { return -1; }
 String M5Comms_::WiFi_::SSID(int) { return String(); }
 int    M5Comms_::WiFi_::RSSI(int) { return 0; }
@@ -225,6 +364,8 @@ int    M5Comms_::WiFi_::connectedRSSI() { return 0; }
 String M5Comms_::WiFi_::localIPString() { return String(); }
 bool   M5Comms_::WiFi_::probeTcp(const char *, uint16_t, uint32_t) { return false; }
 M5Comms_ M5Comms;
+bool      M5Network_::begin() { return false; }
+M5Network_ M5Network{M5Comms.WiFi};
 
 #endif
 

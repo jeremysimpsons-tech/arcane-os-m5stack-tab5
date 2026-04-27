@@ -8,6 +8,7 @@
 #include "arcane_lvgl.h"
 #include "Tab5M5Comms.hpp"
 #include "arc_wifi.hpp"
+#include "ogsm/ogsm_service.hpp"
 #include <M5Unified.h>
 #include <Arduino.h>
 #include <stdio.h>
@@ -35,6 +36,12 @@ static void sh_power_menu_event(lv_event_t *e) {
     (void)e;
     LvglHal::click_feedback();
     app_show(AppScreen::PowerMenu);
+}
+
+static void sh_ogsm_event(lv_event_t *e) {
+    (void)e;
+    LvglHal::click_feedback();
+    app_show(AppScreen::Ogsm);
 }
 
 void power_off_do_cb(lv_event_t *e) {
@@ -94,10 +101,7 @@ static void shell_batt_refresh_all() {
         if (vbus > 4200)
             charging = true;
     }
-    if (s_shell_batt.theme && lv_obj_is_valid(s_shell_batt.theme)) {
-        lv_label_set_text(s_shell_batt.theme, s_ui_dark_mode ? LV_SYMBOL_EYE_CLOSE : LV_SYMBOL_EYE_OPEN);
-        lv_obj_set_style_text_color(s_shell_batt.theme, lv_color_hex(APP_C_TEXT), LV_PART_MAIN);
-    }
+    /* Dark-mode indicator removed from top bar (settings still control theme). */
     if (chrg) {
         if (charging && lv_obj_is_valid(chrg)) {
             lv_label_set_text(chrg, LV_SYMBOL_CHARGE);
@@ -168,9 +172,29 @@ void shell_wifi_refresh() {
     }
 }
 
+void shell_ogsm_refresh() {
+    if (!s_shell_ogsm.wrap || !lv_obj_is_valid(s_shell_ogsm.wrap)) {
+        return;
+    }
+    const unsigned n = ogsm::unread_count();
+    if (n == 0u) {
+        lv_obj_add_flag(s_shell_ogsm.wrap, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    lv_obj_remove_flag(s_shell_ogsm.wrap, LV_OBJ_FLAG_HIDDEN);
+    char b[8];
+    if (n > 99u) {
+        snprintf(b, sizeof(b), "99+");
+    } else {
+        snprintf(b, sizeof(b), "%u", n);
+    }
+    lv_label_set_text(s_shell_ogsm.badge, b);
+}
+
 static void shell_batt_timer_cb(lv_timer_t *t) {
     (void)t;
     shell_batt_refresh_all();
+    shell_ogsm_refresh();
     shell_wifi_refresh();
 }
 
@@ -346,6 +370,35 @@ void shell_mount(const char *title, void (*on_right)(lv_event_t *), const char *
     lv_obj_set_style_pad_all(brow, 0, LV_PART_MAIN);
     lv_obj_remove_flag(brow, LV_OBJ_FLAG_SCROLLABLE);
 
+    /* OGSM unread indicator (envelope + badge). */
+    lv_obj_t *ogmw = lv_obj_create(brow);
+    lv_obj_set_size(ogmw, (lv_coord_t)(side_btn + 8), (lv_coord_t)side_btn);
+    lv_obj_set_layout(ogmw, LV_LAYOUT_NONE);
+    lv_obj_set_style_bg_opa(ogmw, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(ogmw, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(ogmw, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_right(ogmw, 4, LV_PART_MAIN);
+    lv_obj_remove_flag(ogmw, LV_OBJ_FLAG_SCROLLABLE);
+    s_shell_ogsm.wrap = ogmw;
+    lv_obj_t *ogbtn   = lv_button_create(ogmw);
+    shell_style_topbar_btn(ogbtn);
+    lv_obj_set_size(ogbtn, (lv_coord_t)(side_btn * 2 / 3), (lv_coord_t)(side_btn * 2 / 3));
+    lv_obj_align(ogbtn, LV_ALIGN_LEFT_MID, 0, 0);
+    s_shell_ogsm.ic = lv_label_create(ogbtn);
+    /* Unicode envelope (works with default montserrat). */
+    lv_label_set_text(s_shell_ogsm.ic, "✉");
+    lv_obj_set_style_text_font(s_shell_ogsm.ic, APP_FONT_HEADING, LV_PART_MAIN);
+    lv_obj_set_style_text_color(s_shell_ogsm.ic, lv_color_hex(0xFFCC00), LV_PART_MAIN);
+    lv_obj_center(s_shell_ogsm.ic);
+    lv_obj_add_event_cb(ogbtn, sh_ogsm_event, LV_EVENT_CLICKED, nullptr);
+    s_shell_ogsm.badge = lv_label_create(ogmw);
+    lv_obj_set_style_text_font(s_shell_ogsm.badge, APP_FONT_SUB, LV_PART_MAIN);
+    lv_obj_set_style_text_color(s_shell_ogsm.badge, lv_color_hex(0xFF453A), LV_PART_MAIN);
+    lv_obj_align(s_shell_ogsm.badge, LV_ALIGN_TOP_RIGHT, 0, 4);
+    lv_label_set_text(s_shell_ogsm.badge, "0");
+    lv_obj_add_flag(ogmw, LV_OBJ_FLAG_HIDDEN);
+    shell_ogsm_refresh();
+
     lv_obj_t *wifiw = lv_obj_create(brow);
     lv_obj_set_size(wifiw, LV_SIZE_CONTENT, side_btn);
     lv_obj_set_style_bg_opa(wifiw, LV_OPA_TRANSP, LV_PART_MAIN);
@@ -353,21 +406,14 @@ void shell_mount(const char *title, void (*on_right)(lv_event_t *), const char *
     lv_obj_set_layout(wifiw, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(wifiw, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(wifiw, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    /* Gap before dark-mode / battery cluster (Wi-Fi glyph can scale and needs room). */
-    lv_obj_set_style_pad_right(wifiw, 10, LV_PART_MAIN);
+    /* Small gap before battery cluster (Wi-Fi glyph can scale and needs room). */
+    lv_obj_set_style_pad_right(wifiw, 6, LV_PART_MAIN);
     lv_obj_remove_flag(wifiw, LV_OBJ_FLAG_SCROLLABLE);
     s_shell_wifi.wrap = wifiw;
     s_shell_wifi.ic   = lv_label_create(wifiw);
     lv_label_set_text(s_shell_wifi.ic, LV_SYMBOL_WIFI);
     lv_obj_set_style_text_font(s_shell_wifi.ic, APP_FONT_SUB, LV_PART_MAIN);
     shell_wifi_refresh();
-
-    lv_obj_t *theme_ic = lv_label_create(brow);
-    lv_label_set_text(theme_ic, s_ui_dark_mode ? LV_SYMBOL_EYE_CLOSE : LV_SYMBOL_EYE_OPEN);
-    lv_obj_set_style_text_font(theme_ic, APP_FONT_HEADING, LV_PART_MAIN);
-    lv_obj_set_style_text_color(theme_ic, lv_color_hex(APP_C_TEXT), LV_PART_MAIN);
-    lv_obj_set_style_pad_left(theme_ic, 4, LV_PART_MAIN);
-    lv_obj_set_style_pad_right(theme_ic, 4, LV_PART_MAIN);
 
     lv_obj_t *batt_chrg = lv_label_create(brow);
     lv_label_set_text(batt_chrg, LV_SYMBOL_CHARGE);
@@ -380,7 +426,7 @@ void shell_mount(const char *title, void (*on_right)(lv_event_t *), const char *
     lv_obj_set_style_text_font(batt_sym, APP_FONT_HEADING, LV_PART_MAIN);
     lv_obj_t *batt_num = lv_label_create(brow);
     lv_obj_set_style_text_font(batt_num, APP_FONT_HEADING, LV_PART_MAIN);
-    s_shell_batt.theme = theme_ic;
+    s_shell_batt.theme = nullptr;
     s_shell_batt.chrg  = batt_chrg;
     s_shell_batt.sym   = batt_sym;
     s_shell_batt.num   = batt_num;

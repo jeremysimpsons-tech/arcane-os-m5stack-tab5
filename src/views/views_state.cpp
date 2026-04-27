@@ -8,6 +8,7 @@ bool   s_splash_dismissed = false;
 lv_obj_t *s_cbody                = nullptr;
 ShellBatt  s_shell_batt  = {};
 ShellTopWifi s_shell_wifi = {};
+ShellTopOgsm s_shell_ogsm = {};
 lv_timer_t *s_shell_batt_timer   = nullptr;
 
 uint32_t s_backlight_timeout_ms = 0;
@@ -25,6 +26,7 @@ bool s_mesh_gateway          = false;
 int  s_bl_timeout_s         = 0;
 int  s_dim_timeout_s        = 0;
 uint8_t s_volume_pct         = 70;
+uint8_t s_startup_volume_pct = 98; /* default ~= 250/255 */
 bool  s_settings_dirty      = false;
 lv_obj_t *s_settings_save_top    = nullptr;
 lv_obj_t *s_settings_save_bottom = nullptr;

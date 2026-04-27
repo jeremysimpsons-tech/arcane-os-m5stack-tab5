@@ -1,9 +1,11 @@
 #include "AppTypes.hpp"
 #include "LvglHal.hpp"
+#include "ogsm/ogsm_service.hpp"
 #include "Views.hpp"
 #include <Arduino.h>
 
 void app_show(AppScreen s, void *user_ctx) {
+    ogsm::on_app_shown(s);
     /* Always call from LVGL context while the main loop holds LvglHal::lock(), or from setup with same lock. */
     switch (s) {
     case AppScreen::Splash:
@@ -47,6 +49,9 @@ void app_show(AppScreen s, void *user_ctx) {
         break;
     case AppScreen::PowerMenu:
         view_power_menu();
+        break;
+    case AppScreen::Ogsm:
+        view_ogsm();
         break;
     default:
         view_home();

@@ -23,6 +23,7 @@ static const struct {
 } k_apps[] = {
     { LV_SYMBOL_SETTINGS, "Settings", AppScreen::Settings },
     { LV_SYMBOL_LIST, "Status", AppScreen::Status },
+    { LV_SYMBOL_FILE, "OGSM", AppScreen::Ogsm },
     { LV_SYMBOL_WIFI, "Wi-Fi", AppScreen::WiFi },
     { LV_SYMBOL_DIRECTORY, "Files", AppScreen::Files },
     { LV_SYMBOL_VIDEO, "Camera", AppScreen::Camera },

@@ -8,6 +8,27 @@
 #include "LvglHal.hpp"
 #include "app_config.h"
 #include "arcane_lvgl.h"
+#include "ogsm/ogsm_service.hpp"
+#include "views_internal.hpp"
+#include "views_config.hpp"
+#include <Preferences.h>
+
+static void audio_bootstrap() {
+    /* After brownout/reboot during audio, the codec can be left in a bad state. Force re-init early. */
+    uint32_t vol_pct = 70u;
+    Preferences p;
+    if (p.begin(ARC_SETTINGS_NVS, true) && p.getUInt("magic", 0) == ARC_SETTINGS_MAGIC) {
+        const uint32_t v = p.getUInt("vol", 101u);
+        if (v <= 100u) vol_pct = v;
+    }
+    p.end();
+    (void)M5.Speaker.end();
+    delay(10);
+    (void)M5.Speaker.begin();
+    const uint32_t v255 = (255u * vol_pct) / 100u;
+    M5.Speaker.setVolume((uint8_t)v255);
+    M5.Speaker.setAllChannelVolume((uint8_t)v255);
+}
 
 void setup() {
     Serial.begin(115200);
@@ -22,6 +43,7 @@ void setup() {
 #endif
     M5.begin(m5c);
     M5.Display.setBrightness((uint8_t)((255 * 60) / 100)); /* ~60% */
+    audio_bootstrap();
     LvglHal::init();
     LvglHal::lock();
     app_init();
@@ -30,6 +52,16 @@ void setup() {
 
 void loop() {
     M5.update();
+    /* Defer OGSM radio startup until after splash audio init/dismiss.
+     * Boot-time hosted Wi-Fi init can interfere with M5Unified speaker bring-up on Tab5. */
+    static bool s_ogsm_started = false;
+    if (!s_ogsm_started && s_splash_dismissed) {
+        ogsm::service_init();
+        s_ogsm_started = true;
+    }
+    if (s_ogsm_started) {
+        ogsm::service_poll();
+    }
     LvglHal::lock();
     lv_timer_handler();
     LvglHal::unlock();

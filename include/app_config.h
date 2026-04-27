@@ -67,11 +67,11 @@
 
 #define APP_NAME "ARCANE OS"
 #define APP_NAME_SHORT "ARCANE"
-#define APP_VERSION "1.1.0"
+#define APP_VERSION "1.1.1"
 
 /* Splash/startup chime: direct `M5.Speaker.setVolume(0..255)`; saved NVS "vol" still applies after dismiss. */
 #ifndef APP_SPLASH_VOLUME
-#define APP_SPLASH_VOLUME 200
+#define APP_SPLASH_VOLUME 250
 #endif
 
 /* Serial (115200): splash audio diagnostics. Set to 0 to silence. */

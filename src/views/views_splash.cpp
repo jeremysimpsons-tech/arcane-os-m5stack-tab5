@@ -69,10 +69,10 @@ static void splash_play_startup_wav() {
     }
 #endif
 
+    /* Restore master volume on dismiss; splash jingle uses its own setting. */
     s_splash_spk_volume_restore = M5.Speaker.getVolume();
-    uint32_t sp = (uint32_t)APP_SPLASH_VOLUME;
-    if (sp > 255u)
-        sp = 255u;
+    uint32_t sp = (uint32_t)((255u * (uint32_t)s_startup_volume_pct) / 100u);
+    if (sp > 255u) sp = 255u;
     const uint8_t splash_master = (uint8_t)sp;
 
 #if ARC_DEBUG_SPLASH_AUDIO
@@ -93,8 +93,9 @@ static void splash_play_startup_wav() {
         Serial.println("--- arc: splash audio ---");
         Serial.printf("  board (enum)=%d  (M5Tab5=%d)  spk isEnabled=%d  isRunning=%d\n", (int)br,
             (int)m5::board_t::board_M5Tab5, (int)M5.Speaker.isEnabled(), (int)M5.Speaker.isRunning());
-        Serial.printf("  M5.Speaker: master_now=%u ch0=%u  (NVS vol%% key=%u, 101=unset)  splash setVolume=%u\n",
-            (unsigned)master_before, (unsigned)ch0, (unsigned)nvs_vol, (unsigned)splash_master);
+        Serial.printf("  M5.Speaker: master_now=%u ch0=%u  (NVS vol%% key=%u, 101=unset)  splashVol%%=%u setVolume=%u\n",
+            (unsigned)master_before, (unsigned)ch0, (unsigned)nvs_vol, (unsigned)s_startup_volume_pct,
+            (unsigned)splash_master);
         Serial.printf("  spk config: data_out=%d bck=%d ws=%d mck=%d  i2s=%d  mag=%u\n", spk.pin_data_out,
             spk.pin_bck, spk.pin_ws, spk.pin_mck, (int)spk.i2s_port, (unsigned)spk.magnification);
         Serial.printf("  startup.wav embed: %u bytes, head=%.4s\n", (unsigned)n, (char *)p);
